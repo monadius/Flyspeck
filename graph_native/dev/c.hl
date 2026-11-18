@@ -1,0 +1,121 @@
+let LENGTH_UNROLL15 = prove
+  (`LENGTH ([]:(A)list) = 0
+    /\ LENGTH [a:A] = 1
+    /\ LENGTH [a:A; b] = 2
+    /\ LENGTH [a:A; b; c] = 3
+    /\ LENGTH [a:A; b; c; d] = 4
+    /\ LENGTH [a:A; b; c; d; e] = 5
+    /\ LENGTH [a:A; b; c; d; e; f] = 6
+    /\ LENGTH [a:A; b; c; d; e; f; g] = 7
+    /\ LENGTH [a:A; b; c; d; e; f; g; h] = 8
+    /\ LENGTH [a:A; b; c; d; e; f; g; h; i] = 9
+    /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j] = 10
+    /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j; k] = 11
+    /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j; k; l] = 12
+    /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j; k; l; m] = 13
+    /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j; k; l; m; n] = 14
+    /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j; k; l; m; n; p] = 15
+    /\ LENGTH (CONS (a:A) (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p (CONS q rest)))))))))))))))) = 16 + LENGTH rest`,
+  REWRITE_TAC[LENGTH] THEN ARITH_TAC);;
+
+let LENGTH_UNROLL5 = prove
+  (`LENGTH ([]:(A)list) = 0
+    /\ LENGTH [a:A] = 1
+    /\ LENGTH [a:A; b] = 2
+    /\ LENGTH [a:A; b; c] = 3
+    /\ LENGTH [a:A; b; c; d] = 4
+    /\ LENGTH [a:A; b; c; d; e] = 5
+    /\ LENGTH (CONS (a:A) (CONS b (CONS c (CONS d (CONS e (CONS f rest)))))) = 6 + LENGTH rest`,
+  REWRITE_TAC[LENGTH] THEN ARITH_TAC);;
+
+let EL_UNROLL15 = prove
+  (`EL 0 (CONS (a:A) xs) = a
+    /\ EL 1 (CONS a (CONS b xs)) = b
+    /\ EL 2 (CONS a (CONS b (CONS c xs))) = c
+    /\ EL 3 (CONS a (CONS b (CONS c (CONS d xs)))) = d
+    /\ EL 4 (CONS a (CONS b (CONS c (CONS d (CONS e xs))))) = e
+    /\ EL 5 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f xs)))))) = f
+    /\ EL 6 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g xs))))))) = g
+    /\ EL 7 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h xs)))))))) = h
+    /\ EL 8 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i xs))))))))) = i
+    /\ EL 9 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j xs)))))))))) = j
+    /\ EL 10 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k xs))))))))))) = k
+    /\ EL 11 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l xs)))))))))))) = l
+    /\ EL 12 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m xs))))))))))))) = m
+    /\ EL 13 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n xs)))))))))))))) = n
+    /\ EL 14 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p xs))))))))))))))) = p
+    /\ EL 15 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p (CONS q xs)))))))))))))))) = q
+    /\ EL nn (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p (CONS q xs)))))))))))))))) = 
+        if nn > 15 then EL (nn - 16) xs else EL nn (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p (CONS q xs))))))))))))))))`,
+  REWRITE_TAC[EL_CONS; ARITH] THEN
+  REPEAT (COND_CASES_TAC THEN ASM_REWRITE_TAC[ARITH; ARITH_RULE `n - a - b = n - (a + b)`]) THEN
+  POP_ASSUM MP_TAC THEN POP_ASSUM MP_TAC THEN ARITH_TAC);;
+
+let APPEND_UNROLL8 = prove
+  (`APPEND [] xs = xs
+    /\ APPEND [a:A] xs = CONS a xs
+    /\ APPEND [a; b] xs = CONS a (CONS b xs)
+    /\ APPEND [a; b; c] xs = CONS a (CONS b (CONS c xs))
+    /\ APPEND [a; b; c; d] xs = CONS a (CONS b (CONS c (CONS d xs)))
+    /\ APPEND [a; b; c; d; e] xs = CONS a (CONS b (CONS c (CONS d (CONS e xs))))
+    /\ APPEND [a; b; c; d; e; f] xs = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f xs)))))
+    /\ APPEND [a; b; c; d; e; f; g] xs = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g xs))))))
+    /\ APPEND [a; b; c; d; e; f; g; h] xs = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h xs)))))))
+    /\ APPEND (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i ys))))))))) xs =
+        CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (APPEND ys xs)))))))))`,
+  REWRITE_TAC[APPEND]);;
+
+let MAP_UNROLL11 = prove
+  (`MAP (f:A->B) [] = []
+    /\ MAP f [a] = [f a]
+    /\ MAP f [a; b] = [f a; f b]
+    /\ MAP f [a; b; c] = [f a; f b; f c]
+    /\ MAP f [a; b; c; d] = [f a; f b; f c; f d]
+    /\ MAP f [a; b; c; d; e] = [f a; f b; f c; f d; f e]
+    /\ MAP f [a; b; c; d; e; g] = [f a; f b; f c; f d; f e; f g]
+    /\ MAP f [a; b; c; d; e; g; h] = [f a; f b; f c; f d; f e; f g; f h]
+    /\ MAP f [a; b; c; d; e; g; h; i] = [f a; f b; f c; f d; f e; f g; f h; f i]
+    /\ MAP f [a; b; c; d; e; g; h; i; j] = [f a; f b; f c; f d; f e; f g; f h; f i; f j]
+    /\ MAP f [a; b; c; d; e; g; h; i; j; k] = [f a; f b; f c; f d; f e; f g; f h; f i; f j; f k]
+    /\ MAP f [a; b; c; d; e; g; h; i; j; k; l] = [f a; f b; f c; f d; f e; f g; f h; f i; f j; f k; f l]
+    /\ MAP f (CONS a (CONS b (CONS c (CONS d (CONS e (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m xs)))))))))))) = 
+      CONS (f a) (CONS (f b) (CONS (f c) (CONS (f d) (CONS (f e) (CONS (f g) (CONS (f h) (CONS (f i) (CONS (f j) (CONS (f k) (CONS (f l) (CONS (f m) (MAP f xs))))))))))))`,
+  REWRITE_TAC[MAP]);;
+
+let MEM_UNROLL8 = prove
+  (`(MEM (x:A) [] <=> F)
+    /\ (MEM x [a] <=> x = a)
+    /\ (MEM x [a; b] <=> x = a \/ x = b)
+    /\ (MEM x [a; b; c] <=> x = a \/ x = b \/ x = c)
+    /\ (MEM x [a; b; c; d] <=> x = a \/ x = b \/ x = c \/ x = d)
+    /\ (MEM x [a; b; c; d; e] <=> x = a \/ x = b \/ x = c \/ x = d \/ x = e)
+    /\ (MEM x [a; b; c; d; e; f] <=> x = a \/ x = b \/ x = c \/ x = d \/ x = e \/ x = f)
+    /\ (MEM x [a; b; c; d; e; f; g] <=> x = a \/ x = b \/ x = c \/ x = d \/ x = e \/ x = f \/ x = g)
+    /\ (MEM x [a; b; c; d; e; f; g; h] <=> x = a \/ x = b \/ x = c \/ x = d \/ x = e \/ x = f \/ x = g \/ x = h)
+    /\ (MEM x (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i xs))))))))) <=> x = a \/ x = b \/ x = c \/ x = d \/ x = e \/ x = f \/ x = g \/ x = h \/ x = i \/ MEM x xs)`,
+  REWRITE_TAC[MEM]);;
+
+let FILTER_UNROLL2 = prove
+  (`FILTER (p:A->bool) [] = []
+    /\ (FILTER p [a] = if p a then [a] else [])
+    /\ (FILTER p [a; b] = if p a then CONS a (if p b then [b] else []) else (if p b then [b] else []))
+    /\ (FILTER p (CONS a (CONS b xs)) = if p a then CONS a (if p b then CONS b (FILTER p xs) else FILTER p xs) else if p b then CONS b (FILTER p xs) else FILTER p xs)`,
+  REWRITE_TAC[FILTER] THEN MESON_TAC[]);;
+
+let FINAL_GRAPH_EXEC = prove
+ (`!g. FINAL_GRAPH (GRAPH fs n fl h) <=> ALL FINAL_FACE fs`,
+  REWRITE_TAC[FINAL_GRAPH_ALL; FACES]);;
+
+let TAME10_EXEC = prove
+ (`!g. TAME10 (GRAPH fs n fl h) <=> 13 <= n /\ n <= 15`,
+  REWRITE_TAC[TAME10; COUNT_VERTICES; LET_DEF; LET_END_DEF]);;
+
+let XEXCESS_OF_EXEC = prove
+  (`!l. XEXCESS_OF [a; b; c; d; e] =
+       (if 15410 <=
+           COMPLETION_VALUE a b c d e
+        then 15410
+        else COMPLETION_VALUE a b c d e - e)`,
+  REWRITE_TAC[XEXCESS_OF; EL_CONS; ARITH; SQUANDER_TARGET; LET_DEF; LET_END_DEF]);;
+
+let CV0_EXEC = REWRITE_RULE[TYPE_PAIRS_EXEC; SQUANDER_TARGET; ARITH] CV0;;

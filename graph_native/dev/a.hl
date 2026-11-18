@@ -1,0 +1,51 @@
+(* ========================================================================= *)
+(* graph/tg_driver.hl                                                        *)
+(*                                                                           *)
+(* The HOL driver of the certificate-checked enumeration: reads the          *)
+(* certificate stream produced by the native generator (measure/certgen),    *)
+(* evaluates the checks with the compiled evaluator, and composes the node   *)
+(* theorems TFO arch p g with the lemmas of tg_sound.hl, depth first.        *)
+(* Entry point: run_class p certfile returns |- TFO ARCHIVE p (SEED p) with  *)
+(* standard numerals.  Nothing here extends the trusted base: every step is  *)
+(* an inference on theorems of the loaded files.                             *)
+(* Requires the generated evaluator (the f_ functions) to be loaded.         *)
+(* ========================================================================= *)
+
+
+(* ------------------------------------------------------------------------- *)
+(* Certificate parsing.                                                      *)
+(* ------------------------------------------------------------------------- *)
+
+load_path := "/mnt/data/work/git/forks/flyspeck/graph_native/build/text_formalization" :: !load_path;;
+
+needs "graph/tg_driver.hl";;
+
+let tg_serial argv =
+  let p = int_of_string argv.(2) and cert = argv.(3) in
+  Tg_driver.run_class p cert;;
+
+Tg_driver.xlb_mode := true;;
+Tg_driver.progress_every := 100;;
+Tg_driver.prof_on := true;;
+Tg_driver.max_nodes := 1000;;
+Tg_driver.max_nodes := 0;;
+
+loadt "../../dev/b.hl";;
+
+serial [|""; ""; "0"; "graph_native/cert0.txt"|];;
+(* tg_serial [|""; ""; "0"; "graph_native/cert0.txt"|];; *)
+
+print_prof ();;
+get_all_counters();;
+get_counter "f_CV0";;
+get_counter "f_EL_num";;
+get_counter "f_XLB_LEAF_S";;
+get_counter "f_PIECE_ARCS";;
+get_counter "f_TRIVIAL_ARC";;
+get_counter "f_NEXT_VERTEX";;
+get_counter "f_XEXCESS_OF";;
+
+let p = 0;;
+let p_tm = anum p;;
+let arch = archive_tm;;
+let th_seed = f_SEED p_tm None;;
