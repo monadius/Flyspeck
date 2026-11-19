@@ -58,13 +58,56 @@ let create_counter, reset_all_counters, get_counter, get_all_counters =
        |> List.sort (fun (_, v1) (_, v2) -> Stdlib.compare v2 v1) in
   create, reset_all, get, get_all;;
 
-let rec hash_string_of_term tm =
-  match tm with
-  | Var (name, _) -> name
-  | Const (name, _) -> name
-  | Comb (l, r) -> hash_string_of_term l ^ hash_string_of_term r
-  | Abs (Var(name, _), b) -> name ^ hash_string_of_term b
-  | _ -> failwith "impossible";;
+(* Time counters *)
+
+let create_time_counter, reset_all_time_counters, get_time_counter, get_all_time_counters =
+  let counters = Hashtbl.create 100 in
+  let create (name: string) =
+    try Hashtbl.find counters name
+    with Not_found ->
+      let counter = ref 0.0 in
+      Hashtbl.add counters name counter;
+      counter in
+  let reset_all () =
+    Hashtbl.iter (fun _ c -> c := 0.0) counters in
+  let get name = !(Hashtbl.find counters name) in
+  let get_all () =
+    [] |> Hashtbl.fold (fun name v ls -> (name, !v) :: ls) counters
+       |> List.sort (fun (_, v1) (_, v2) -> Stdlib.compare v2 v1) in
+  create, reset_all, get, get_all;;
+
+let measure_time counter active f =
+  if !active then f ()
+  else begin
+    active := true;
+    let start = Sys.time () in
+    try
+      let res = f () in
+      active := false;
+      counter := !counter +. (Sys.time () -. start);
+      res
+    with e ->
+      active := false;
+      counter := !counter +. (Sys.time () -. start);
+      raise e
+  end;;
+
+let hash_string_of_term =
+  let rec add buf tm =
+    match tm with
+    | Var (name, _) -> Buffer.add_string buf name
+    | Const (name, _) -> Buffer.add_string buf name
+    | Comb (l, r) -> add buf l; add buf r
+    | Abs (Var (name, _), b) -> Buffer.add_string buf name; add buf b
+    | _ -> failwith "impossible" in
+  fun tm ->
+    match tm with
+    | Var (name, _) -> name
+    | Const (name, _) -> name
+    | _ ->
+      let buf = Buffer.create 64 in
+      add buf tm;
+      Buffer.contents buf;;
 
 (* Hashtbl memo *)
 
@@ -85,63 +128,83 @@ let create_hashtbl_memo, clear_hashtbl_memos, get_hashtbl_memos =
 (* Assoc and Assoc_lru memos *)
 
 module Assoc = struct
-  type 'a t = {
-    data : 'a option array;
-    size : int;
-    attempts : int
+  type ('k, 'v) slot =
+    | Empty
+    | Entry of int * 'k * 'v
+
+  type ('k, 'v) t = {
+    data : ('k, 'v) slot array;
+    mask : int;
+    ways : int;
   }
 
   let rec next_pow2 x n =
     if x >= n || x * 2 > Sys.max_array_length then x
     else next_pow2 (2 * x) n
 
-  let create ?(attempts = 2) n = 
-    let size = next_pow2 16 n in {
-      data = Array.make size None;
-      size = size;
-      attempts = attempts;
+  let create ?(attempts = 2) n =
+    let size = next_pow2 16 n in
+    let ways =
+      if attempts <= 0 then 1
+      else if attempts >= size then size
+      else next_pow2 1 (attempts + 1) in
+    {
+      data = Array.make size Empty;
+      mask = size - ways;
+      ways = ways;
     }
 
-  let clear h = Array.fill h.data 0 h.size None
+  let clear h =
+    Array.fill h.data 0 (Array.length h.data) Empty
 
-  let index h key = Hashtbl.hash key land (h.size - 1)
+  let shift_insert data b j slot =
+    for m = j downto b + 1 do
+      Array.unsafe_set data m (Array.unsafe_get data (m - 1))
+    done;
+    Array.unsafe_set data b slot
 
-  let next_index h i = (i * 17 + 1) land (h.size - 1)
-
-  (* let add h key v =
-    let rec add_aux n i =
-      match h.data.(i) with
-      | _ when n <= 0 -> h.data.(i) <- Some (key, v)
-      | None -> h.data.(i) <- Some (key, v)
-      | Some (k, _) ->
-        if k = key then h.data.(i) <- Some (key, v)
-        else add_aux (n - 1) (next_index h i) in
-    let i = index h key in
-    add_aux h.attempts i *)
+  let add_with_hash h hval key v =
+    let data = h.data in
+    let b = hval land h.mask in
+    let limit = b + h.ways in
+    let rec loop j =
+      if j = limit then
+        shift_insert data b (limit - 1) (Entry (hval, key, v))
+      else
+        match Array.unsafe_get data j with
+        | Empty ->
+          shift_insert data b j (Entry (hval, key, v))
+        | Entry (eh, ek, _) ->
+          if eh = hval && ek = key then
+            shift_insert data b j (Entry (hval, key, v))
+          else
+            loop (j + 1)
+    in
+    loop b
 
   let add h key v =
-    let rec add_aux n i =
-      match h.data.(i) with
-      | _ when n < 0 -> false
-      | None -> h.data.(i) <- Some (key, v); true
-      | Some (k, _) ->
-        if k = key then (h.data.(i) <- Some (key, v); true)
-        else add_aux (n - 1) (next_index h i) in
-    let i = index h key in
-    if add_aux h.attempts i then ()
-    else
-      h.data.(i) <- Some (key, v)
+    add_with_hash h (Hashtbl.hash key) key v
+
+  let find_with_hash h hval key =
+    let data = h.data in
+    let b = hval land h.mask in
+    let limit = b + h.ways in
+    let rec loop j =
+      if j = limit then raise Not_found
+      else
+        match Array.unsafe_get data j with
+        | Empty -> raise Not_found
+        | Entry (eh, ek, ev) ->
+          if eh = hval && ek = key then begin
+            if j > b then shift_insert data b j (Array.unsafe_get data j);
+            ev
+          end else
+            loop (j + 1)
+    in
+    loop b
 
   let find h key =
-    let rec find_aux n i =
-      match h.data.(i) with
-      | _ when n < 0 -> raise Not_found
-      | None -> raise Not_found
-      | Some (k, v) ->
-        if k = key then v
-        else find_aux (n - 1) (next_index h i) in
-    let i = index h key in
-    find_aux h.attempts i
+    find_with_hash h (Hashtbl.hash key) key
 end;;
 
 module Assoc_lru = struct
@@ -198,7 +261,7 @@ let create_assoc_memo, clear_assoc_memos, get_assoc_memos =
   let create size (name: string) =
     try Hashtbl.find memos name
     with Not_found ->
-      let memo: (string list * thm) Assoc.t = Assoc.create size in
+      let memo: (string list, thm) Assoc.t = Assoc.create size in
       Hashtbl.add memos name memo;
       memo in
   let clear_all () =

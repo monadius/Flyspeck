@@ -30,8 +30,12 @@ Tg_driver.prof_on := true;;
 Tg_driver.max_nodes := 1000;;
 Tg_driver.max_nodes := 0;;
 
+let out_counters = true;;
+let out_time = true;;
+
 loadt "../../dev/b.hl";;
 
+(* 356.1 (no counters) *)
 serial [|""; ""; "0"; "graph_native/cert0.txt"|];;
 (* tg_serial [|""; ""; "0"; "graph_native/cert0.txt"|];; *)
 
@@ -44,6 +48,19 @@ get_counter "f_PIECE_ARCS";;
 get_counter "f_TRIVIAL_ARC";;
 get_counter "f_NEXT_VERTEX";;
 get_counter "f_XEXCESS_OF";;
+
+get_all_time_counters ();;
+get_time_counter "f_LENGTH_num";;
+(* 0.330 *)
+(* 0.290 *)
+get_time_counter "f_FACES_AT";;
+(* 0.459 *)
+(* 0.387 *)
+get_time_counter "f_TRI";;
+(* 0.167 *)
+get_time_counter "f_NEXT_VERTEX";;
+
+get_time_counter "f_CV0";;
 
 let p = 0;;
 let p_tm = anum p;;

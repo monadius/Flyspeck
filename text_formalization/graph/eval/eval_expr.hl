@@ -80,7 +80,7 @@ let print_expr =
     Format.pp_print_list ~pp_sep:(fun fmt () -> Format.pp_print_string fmt " ") (print_expr false) fmt
   and print_let and_flag match_flag fmt = function
     | Let (r, name, args, expr, None) ->
-      Format.fprintf fmt "@[<v 2>%s %s %a%s=@ %a@]@ "
+      Format.fprintf fmt "@[<v 2>%s %s %a%s=@ %a@]"
         (let_form and_flag r) name 
         print_args args (if args = [] then "" else " ")
         (print_expr false) expr
@@ -124,27 +124,31 @@ let print_expr =
     let f2 = format_of_string (if is_app x then " (%a)" else " %a") in
     Format.fprintf fmt (f1 ^^ f2) (print_expr false) f (print_expr false) x
   | Let _ as expr -> print_let false flag fmt expr
-  | Let_and (expr1 :: exprs, None) ->
+  | Let_and ([], _) -> failwith "Let_and: empty list"
+  | Let_and (e1 :: es, None) ->
+    let print_rest fmt =
+      List.iter (fun e -> Format.fprintf fmt "@ %a" (print_let true flag) e) in
     Format.fprintf fmt "@[<v>%a%a@]"
-      (print_let false flag) expr1
-      (Format.pp_print_list ~pp_sep:(fun fmt () -> ()) (print_let true flag)) exprs
-  | Let_and (expr1 :: exprs, Some body) ->
+      (print_let false flag) e1
+      print_rest es
+  | Let_and (e1 :: es, Some body) ->
+    let print_rest fmt =
+      List.iter (fun e -> Format.fprintf fmt "@ %a" (print_let true flag) e) in
     Format.fprintf fmt "@[<v>%a%a in@]@ %a"
-      (print_let false flag) expr1
-      (Format.pp_print_list ~pp_sep:(fun fmt () -> ()) (print_let true flag)) exprs
+      (print_let false flag) e1
+      print_rest es
       (print_expr flag) body
-  | Let_and _ -> failwith "Let_and: empty list"
   | Try (expr, cases) ->
     Format.fprintf fmt "@[<v 2>try@ %a@]@ with@,| %a"
       (print_expr false) expr
       (Format.pp_print_list 
-        ~pp_sep:(fun fmt () -> Format.pp_print_string fmt "| ")
+        ~pp_sep:(fun fmt () -> Format.fprintf fmt "@,| ")
         (fun fmt (pat, body) ->
           let f = format_of_string 
             (if is_compound body then
-              "@[<v>%a ->@ %a@]@,"
+              "@[<v>%a ->@ %a@]"
              else
-              "@[<hv>%a ->@ %a@]@,") in
+              "@[<hv>%a ->@ %a@]") in
           Format.fprintf fmt f
             (print_expr false) pat (print_expr true) body)) cases
   | Match (expr, cases) ->
@@ -156,13 +160,13 @@ let print_expr =
     Format.fprintf fmt f
       (print_expr false) expr
       (Format.pp_print_list 
-        ~pp_sep:(fun fmt () -> Format.pp_print_string fmt "| ")
+        ~pp_sep:(fun fmt () -> Format.fprintf fmt "@,| ")
         (fun fmt (pat, guard, body) ->
           let f = format_of_string 
             (if is_compound body then
-              "@[<v>%a%a ->@ %a@]@,"
+              "@[<v>%a%a ->@ %a@]"
              else
-              "@[<hv>%a%a ->@ %a@]@,") in
+              "@[<hv>%a%a ->@ %a@]") in
           Format.fprintf fmt f
             (print_expr false) pat
             print_guard guard

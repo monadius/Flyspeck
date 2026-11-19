@@ -212,6 +212,16 @@ let compile_function env func =
       expr
     ]
   in
+  let add_time name expr =
+    let tname = Format.sprintf "time_%s" name in
+    let aname = Format.sprintf "active_%s" name in
+    let run_let = mk_let ~args:[Raw "()"] ("run_body", expr) in
+    let body =
+      If (Raw ("!" ^ aname),
+          Raw "run_body ()",
+          mk_app (Raw "measure_time", [Raw tname; Raw aname; Raw "run_body"])) in
+    chain_let [run_let; body]
+  in
   let add_memo memo name arg_exprs expr =
     let memo_find, memo_add =
       match memo with
@@ -241,6 +251,7 @@ let compile_function env func =
     | Extra_counter t -> add_counter t func.name expr
     | Extra_memo t -> add_memo t func.name arg_exprs expr
     | Extra_arg_list -> add_arg_list func.name arg_exprs expr
+    | Extra_time -> add_time func.name expr
   in
   let add_opt_arg arg_exprs =
     if !compile_tail_rec then arg_exprs @ [Raw "opt_th"] else arg_exprs
@@ -305,7 +316,13 @@ let compile_rules db rules =
       | Extra_arg_list ->
         let e = mk_let (Format.sprintf "args_%s" f.name,
                         App (Raw "create_arg_list", String f.name)) in
-        e :: es in
+        e :: es
+      | Extra_time ->
+        let e1 = mk_let (Format.sprintf "time_%s" f.name,
+                         App (Raw "create_time_counter", String f.name)) in
+        let e2 = mk_let (Format.sprintf "active_%s" f.name,
+                         App (Raw "ref", Raw "false")) in
+        e1 :: e2 :: es in
     let iterate es f = List.fold_left (get_extra f) es f.extra in
     List.fold_left iterate [] fs 
   in

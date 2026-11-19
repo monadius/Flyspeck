@@ -25,7 +25,8 @@ type memo_type = Hashtbl_memo | Assoc_memo of int | Assoc_lru of int * int;;
 type extra = 
   | Extra_counter of int
   | Extra_memo of memo_type 
-  | Extra_arg_list;;
+  | Extra_arg_list
+  | Extra_time;;
 
 type rewrite_rec = {
   args: pattern list;
@@ -207,6 +208,7 @@ let same_extra e1 e2 =
   | Extra_counter _, Extra_counter _ -> true
   | Extra_memo _, Extra_memo _ -> true
   | Extra_arg_list, Extra_arg_list -> true
+  | Extra_time, Extra_time -> true
   | _ -> false;;
 
 let add_extra ls e =

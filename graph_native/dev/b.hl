@@ -54,7 +54,7 @@ open Tg_eval_db;;
   end;
   db, consts;; *)
 
-needs "../../dev/c.hl";;
+loadt "../../dev/c.hl";;
 
 let tame_rules = [
   "FST", FST, [];
@@ -65,6 +65,7 @@ let tame_rules = [
   "ALL", ALL, [];
   "MEM_UNROLL8", MEM_UNROLL8, [];
   "LENGTH_UNROLL15", LENGTH_UNROLL15, [];
+  (* "LENGTH", LENGTH, []; *)
   "REVERSE", REVERSE, [];
   "HD", HD, [];
   "TL", TL, [];
@@ -227,16 +228,19 @@ let tame_rules = [
 
 
 let my_tame_db ?(eliminate_abs = true) ?(counters = true) ?(inst_types = true)
-            ?(result = `NEXT_PLANE p g`) rules =
+            ?(time = true) ?(result = `NEXT_PLANE p g`) rules =
   let db = add_thms (Tg_eval_db.tame_default_db ~eliminate_abs ()) rules in
   let consts = dependencies db result ~inst_types in
   if counters then set_extra_for_all db (Extra_counter 0);
+  if time then set_extra_for_all db Extra_time;
   set_extra_for_consts db (Extra_memo (Assoc_memo 64)) [`ENUMERATOR`];
   set_extra_for_consts db (Extra_memo (Assoc_memo 1024)) [`CV0`];
-  (* set_extra_for_consts db (Extra_memo (Assoc_memo 100000)) [`NEXT_VERTEX`]; *)
+  set_extra_for_consts db (Extra_memo (Assoc_memo 65536)) [`NEXT_VERTEX`];
   db, consts;;
 
-let db, consts = my_tame_db 
+let db, consts = my_tame_db
+    ~counters:out_counters
+    ~time:out_time
     ~result:`SEED,ISO_CERT_OK,FGRAPH,TAME11A,TAME12O,TAME10,FINAL_GRAPH,LB_PRUNED,XLB_PRUNED,DEGREE_PRUNED,POLY_SIZES,VCOUNT_PRUNED_VL,XLB_LEAF_S,POLY_VLISTS,POLY_VLISTS_FAST2,SIZE_PRUNED,XSIZE_PRUNED_S,NEXT_PLANE,FACE_LIST_LEN,LB_CERT_OK,MINFACE_WF,XLB_CERT_OK,XLB_S` 
     tame_rules;;
 
@@ -478,6 +482,7 @@ let run_class p certfile =
   reset_all_counters ();
   clear_arg_lists ();
   clear_all_memos ();
+  reset_all_time_counters ();
   let ic = Stdlib.open_in certfile in
   try
     Atomic.set nodes_done 0; t_start := Unix.gettimeofday(); cur_p := p;
