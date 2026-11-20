@@ -1,0 +1,600 @@
+let NULL_EXEC = `NULL ([]:A list) = T /\ (!h t:A list. NULL (CONS h t) = F)`;;
+
+let LAST_EXEC = `!h t:A list. LAST (CONS h t) = if NULL t then h else LAST t`;;
+
+let EL_EXEC = `!n l:A list. EL n l = if n = 0 then HD l else EL (n - 1) (TL l)`;;
+
+let REPLICATE_EXEC = `!n x:A. REPLICATE n x = if n = 0 then [] else CONS x (REPLICATE (n - 1) x)`;;
+
+let ITER_EXEC = `!n f x:A. ITER n f x = if n = 0 then x else ITER (n - 1) f (f x)`;;
+
+let UPT_REC_EXEC = `!n i. UPT_REC n i = if n = 0 then [] else CONS i (UPT_REC (n - 1) (SUC i))`;;
+
+let UPT = `UPT i j = UPT_REC (j - i) i`;;
+
+let FLAT = `FLAT [] = [] /\
+  FLAT (CONS (h:A list) t) = APPEND h (FLAT t)`;;
+
+let LIST_SUM = `LIST_SUM (f:A->num) [] = 0 /\
+  LIST_SUM f (CONS h t) = f h + LIST_SUM f t`;;
+
+let ROTATE1 = `ROTATE1 [] = [] /\
+  ROTATE1 (CONS (x:A) xs) = APPEND xs [x]`;;
+
+let ROTATE_EXEC = `!n xs:A list.
+     ROTATE n xs = if n = 0 then xs else ROTATE (n - 1) (ROTATE1 xs)`;;
+
+let REPLACE = `REPLACE (x:A) ys [] = [] /\
+  REPLACE x ys (CONS z zs) =
+    if z = x then APPEND ys zs else CONS z (REPLACE x ys zs)`;;
+
+let LIST_UPDATE = `LIST_UPDATE [] i (y:A) = [] /\
+  LIST_UPDATE (CONS x xs) i y =
+    if i = 0 then CONS y xs else CONS x (LIST_UPDATE xs (i - 1) y)`;;
+
+let UPDATE_AT = `UPDATE_AT [] n (h:A->A) = [] /\
+  UPDATE_AT (CONS x xs) n h =
+    if n = 0 then CONS (h x) xs else CONS x (UPDATE_AT xs (n - 1) h)`;;
+
+let MAP_AT_EXEC = `(!h:A->A xs. MAP_AT [] h xs = xs) /\
+   (!n ns h:A->A xs.
+      MAP_AT (CONS n ns) h xs = MAP_AT ns h (UPDATE_AT xs n h))`;;
+
+let SPLIT_AT_LIN_EXEC = `SPLIT_AT_LIN (c:A) [] = ([],[]) /\
+  SPLIT_AT_LIN c (CONS a rs) =
+    if a = c then ([],rs)
+    else (\pr. (CONS a (FST pr), SND pr)) (SPLIT_AT_LIN c rs)`;;
+
+let SPLIT_AT_EXEC = `!c:A l. SPLIT_AT c l = SPLIT_AT_LIN c l`;;
+
+let BETWEEN_EXEC = `BETWEEN (vs:A list) ram1 ram2 =
+    (\(pre1,post1).
+       if MEM ram2 post1 then
+         (\(pre2,post2). pre2) (SPLIT_AT ram2 post1)
+       else
+         (\(pre2,post2). APPEND post1 pre2) (SPLIT_AT ram2 pre1))
+    (SPLIT_AT ram1 vs)`;;
+
+let MINIMAL_EL_EXEC = `MINIMAL_EL (m:A->num) (CONS x xs) =
+    if xs = [] then x
+    else (\mxs. if m x <= m mxs then x else mxs) (MINIMAL_EL m xs)`;;
+
+let NEXT_ELEM = `NEXT_ELEM [] (b:A) x = b /\
+  NEXT_ELEM [a] b x = b /\
+  NEXT_ELEM (CONS a (CONS a' rs)) b x =
+    if x = a then a' else NEXT_ELEM (CONS a' rs) b x`;;
+
+let HIDE_DUPS_REC = `HIDE_DUPS_REC (a:A) [] = [] /\
+  HIDE_DUPS_REC a (CONS b bs) =
+    if a = b then CONS NONE (HIDE_DUPS_REC b bs)
+    else CONS (SOME b) (HIDE_DUPS_REC b bs)`;;
+
+let HIDE_DUPS = `HIDE_DUPS [] = [] /\
+  HIDE_DUPS (CONS (b:A) bs) = CONS (SOME b) (HIDE_DUPS_REC b bs)`;;
+
+let THE = `THE (SOME (x:A)) = x`;;
+
+let DISTINCT = `DISTINCT [] = T /\
+  DISTINCT (CONS (x:A) xs) = (~(MEM x xs) /\ DISTINCT xs)`;;
+
+let VERTICES = `VERTICES (FACE vs t) = vs`;;
+
+let FACE_TYPE = `FACE_TYPE (FACE vs t) = t`;;
+
+let FINAL_FACE = `FINAL_FACE (FACE vs Final) = T /\
+  FINAL_FACE (FACE vs Nonfinal) = F`;;
+
+let SET_FINAL = `SET_FINAL f = FACE (VERTICES f) Final`;;
+
+let NEXT_VERTEX_EXEC = `!vs t v. NEXT_VERTEX (FACE vs t) v = NEXT_ELEM vs (HD vs) v`;;
+
+let NEXT_VERTICES_EXEC = `!f n v. NEXT_VERTICES f n v =
+           if n = 0 then v else NEXT_VERTICES f (n - 1) (NEXT_VERTEX f v)`;;
+
+let IS_LEN3 = `IS_LEN3 ([]:A list) = F /\ IS_LEN3 [a] = F /\ IS_LEN3 [a;b] = F /\
+  IS_LEN3 [a;b;c] = T /\ IS_LEN3 (CONS a (CONS b (CONS c (CONS d t)))) = F`;;
+
+let IS_LEN4 = `IS_LEN4 ([]:A list) = F /\ IS_LEN4 [a] = F /\ IS_LEN4 [a;b] = F /\
+  IS_LEN4 [a;b;c] = F /\ IS_LEN4 [a;b;c;d] = T /\
+  IS_LEN4 (CONS a (CONS b (CONS c (CONS d (CONS e t))))) = F`;;
+
+let IS_LEN_GE5 = `IS_LEN_GE5 ([]:A list) = F /\ IS_LEN_GE5 [a] = F /\ IS_LEN_GE5 [a;b] = F /\
+  IS_LEN_GE5 [a;b;c] = F /\ IS_LEN_GE5 [a;b;c;d] = F /\
+  IS_LEN_GE5 (CONS a (CONS b (CONS c (CONS d (CONS e t))))) = T`;;
+
+let SQF = `SQF ([]:A list) = 15410 /\ SQF [a] = 15410 /\ SQF [a;b] = 15410 /\
+  SQF [a;b;c] = 0 /\ SQF [a;b;c;d] = 2058 /\ SQF [a;b;c;d;e] = 4819 /\
+  SQF [a;b;c;d;e;f] = 7120 /\
+  SQF (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g t))))))) =
+  15410`;;
+
+let TRIANGLE_EXEC = `!f. TRIANGLE f <=> IS_LEN3 (VERTICES f)`;;
+
+let FACES = `FACES (GRAPH fs n fl h) = fs`;;
+
+let COUNT_VERTICES = `COUNT_VERTICES (GRAPH fs n fl h) = n`;;
+
+let FACE_LIST_AT = `FACE_LIST_AT (GRAPH fs n fl h) = fl`;;
+
+let HEIGHTS = `HEIGHTS (GRAPH fs n fl h) = h`;;
+
+let VERTICES_GRAPH = `VERTICES_GRAPH g = UPT 0 (COUNT_VERTICES g)`;;
+
+let FACES_AT = `FACES_AT g v = EL v (FACE_LIST_AT g)`;;
+
+let HEIGHT = `HEIGHT g v = EL v (HEIGHTS g)`;;
+
+let SEED_GRAPH_EXEC = `!n. SEED_GRAPH n =
+       GRAPH [FACE (UPT 0 n) Final; FACE (REVERSE (UPT 0 n)) Nonfinal] n
+             (REPLICATE n [FACE (UPT 0 n) Final;
+                           FACE (REVERSE (UPT 0 n)) Nonfinal])
+             (REPLICATE n 0)`;;
+
+let FINALS = `FINALS g = FILTER FINAL_FACE (FACES g)`;;
+
+let NON_FINALS = `NON_FINALS g = FILTER (\f. ~FINAL_FACE f) (FACES g)`;;
+
+let FINAL_GRAPH_EXEC = `!g. FINAL_GRAPH g <=> ALL FINAL_FACE (FACES g)`;;
+
+let FINAL_VERTEX = `FINAL_VERTEX g v <=> ALL FINAL_FACE (FACES_AT g v)`;;
+
+let DEGREE = `DEGREE g v = LENGTH(FACES_AT g v)`;;
+
+let TRI_EXEC = `!g v. TRI g v = LENGTH(FILTER (\f. FINAL_FACE f /\ IS_LEN3 (VERTICES f))
+                                 (FACES_AT g v))`;;
+
+let QUAD_EXEC = `!g v. QUAD g v = LENGTH(FILTER (\f. FINAL_FACE f /\ IS_LEN4 (VERTICES f))
+                                  (FACES_AT g v))`;;
+
+let EXCEPT_EXEC = `!g v. EXCEPT g v =
+         LENGTH(FILTER (\f. FINAL_FACE f /\ IS_LEN_GE5 (VERTICES f))
+                       (FACES_AT g v))`;;
+
+let NEIGHBORS = `NEIGHBORS g v = MAP (\f. NEXT_VERTEX f v) (FACES_AT g v)`;;
+
+let DIRECTED_LENGTH = `DIRECTED_LENGTH f a b =
+    if a = b then 0 else LENGTH(BETWEEN (VERTICES f) a b) + 1`;;
+
+let ENUM_BASE = `ENUM_BASE nmax = MAP (\i. [i]) (UPT 0 (SUC nmax))`;;
+
+let ENUM_APPEND = `ENUM_APPEND nmax iss =
+    FLAT (MAP (\is. MAP (\n. APPEND is [n]) (UPT (LAST is) (SUC nmax))) iss)`;;
+
+let ENUMERATOR_EXEC = `ENUMERATOR inner outer =
+    (\nmax. (\k. MAP (\is. APPEND [0] (APPEND is [outer - 1]))
+                     (ITER k (ENUM_APPEND nmax) (ENUM_BASE nmax)))
+            (inner - 3))
+    (outer - 2)`;;
+
+let INDEX_TO_VERTEX_LIST = `INDEX_TO_VERTEX_LIST f v is = HIDE_DUPS (MAP (\k. NEXT_VERTICES f k v) is)`;;
+
+let SPLIT_FACE_PAIR_EXEC = `SPLIT_FACE_PAIR f ram1 ram2 newVs =
+    (\vs. (\f1. (\f2.
+      FACE (APPEND (REVERSE newVs) f1) Nonfinal,
+      FACE (APPEND f2 newVs) Nonfinal)
+      (APPEND [ram2] (APPEND (BETWEEN vs ram2 ram1) [ram1])))
+      (APPEND [ram1] (APPEND (BETWEEN vs ram1 ram2) [ram2])))
+    (VERTICES f)`;;
+
+let REPLACE_FACES_AT = `REPLACE_FACES_AT ns f fs fss = MAP_AT ns (REPLACE f fs) fss`;;
+
+let MAKE_FACE_FINAL_LIST = `MAKE_FACE_FINAL_LIST f fs = REPLACE f [SET_FINAL f] fs`;;
+
+let MAKE_FACE_FINAL = `MAKE_FACE_FINAL f g =
+    GRAPH (MAKE_FACE_FINAL_LIST f (FACES g))
+          (COUNT_VERTICES g)
+          (MAP (MAKE_FACE_FINAL_LIST f) (FACE_LIST_AT g))
+          (HEIGHTS g)`;;
+
+let HEIGHTS_NEW_VERTICES = `HEIGHTS_NEW_VERTICES h1 h2 n =
+    MAP (\i. MIN (h1 + i + 1) (h2 + n - i)) (UPT 0 n)`;;
+
+let SPLIT_FACE_EXEC = `SPLIT_FACE g ram1 ram2 oldF newVs =
+    (\fs. (\n. (\fss. (\h. (\vs1. (\vs2. (\(f1,f2).
+      (\fss1. (\fss2. (\fss3. (\fss4. (\fss5.
+        f1,f2,GRAPH (APPEND (REPLACE oldF [f2] fs) [f1])
+                    (n + LENGTH newVs)
+                    fss5
+                    (APPEND h (HEIGHTS_NEW_VERTICES (EL ram1 h) (EL ram2 h)
+                                                    (LENGTH newVs))))
+      (APPEND fss4 (REPLICATE (LENGTH newVs) [f1;f2])))
+      (REPLACE_FACES_AT [ram2] oldF [f1;f2] fss3))
+      (REPLACE_FACES_AT [ram1] oldF [f2;f1] fss2))
+      (REPLACE_FACES_AT vs2 oldF [f2] fss1))
+      (REPLACE_FACES_AT vs1 oldF [f1] fss))
+      (SPLIT_FACE_PAIR oldF ram1 ram2 newVs))
+      (BETWEEN (VERTICES oldF) ram2 ram1))
+      (BETWEEN (VERTICES oldF) ram1 ram2))
+      (HEIGHTS g))
+      (FACE_LIST_AT g))
+      (COUNT_VERTICES g))
+      (FACES g)`;;
+
+let SUBDIV_FACE_REC_EXEC = `(!g f u n. SUBDIV_FACE_REC [] g f u n = MAKE_FACE_FINAL f g) /\
+   (!g f u n vos. SUBDIV_FACE_REC (CONS NONE vos) g f u n =
+                  SUBDIV_FACE_REC vos g f u (SUC n)) /\
+   (!g f u n v vos.
+      SUBDIV_FACE_REC (CONS (SOME v) vos) g f u n =
+        if NEXT_VERTEX f u = v /\ n = 0 then SUBDIV_FACE_REC vos g f v 0
+        else (\ws. (\(f1,f2,g'). SUBDIV_FACE_REC vos g' f2 v 0)
+                   (SPLIT_FACE g u v f ws))
+             (UPT (COUNT_VERTICES g) (COUNT_VERTICES g + n)))`;;
+
+let SUBDIV_FACE = `SUBDIV_FACE g f vos = SUBDIV_FACE_REC (TL vos) g f (THE (HD vos)) 0`;;
+
+let MAX_GON = `MAX_GON p = p + 3`;;
+
+let DUPLICATE_EDGE = `DUPLICATE_EDGE g f a b <=>
+    2 <= DIRECTED_LENGTH f a b /\ 2 <= DIRECTED_LENGTH f b a /\
+    MEM b (NEIGHBORS g a)`;;
+
+let CONTAINS_UNACCEPTABLE_EDGE_SND = `CONTAINS_UNACCEPTABLE_EDGE_SND (nb:num->num->bool) v [] = F /\
+  CONTAINS_UNACCEPTABLE_EDGE_SND nb v [w] = F /\
+  CONTAINS_UNACCEPTABLE_EDGE_SND nb v (CONS w (CONS w' ws)) =
+    (if v < w /\ w < w' /\ nb w w' then T
+     else CONTAINS_UNACCEPTABLE_EDGE_SND nb w (CONS w' ws))`;;
+
+let CONTAINS_UNACCEPTABLE_EDGE = `CONTAINS_UNACCEPTABLE_EDGE (nb:num->num->bool) [] = F /\
+  CONTAINS_UNACCEPTABLE_EDGE nb [v] = F /\
+  CONTAINS_UNACCEPTABLE_EDGE nb (CONS v (CONS w ws)) =
+    (if v < w /\ nb v w then T
+     else CONTAINS_UNACCEPTABLE_EDGE_SND nb v (CONS w ws))`;;
+
+let CONTAINS_DUPLICATE_EDGE = `CONTAINS_DUPLICATE_EDGE g f v is <=>
+    CONTAINS_UNACCEPTABLE_EDGE
+      (\i j. DUPLICATE_EDGE g f (NEXT_VERTICES f i v) (NEXT_VERTICES f j v))
+      is`;;
+
+let GENERATE_POLYGON_EXEC = `!n v f g.
+     GENERATE_POLYGON n v f g =
+       MAP (SUBDIV_FACE g f)
+           (MAP (INDEX_TO_VERTEX_LIST f v)
+                (FILTER (\is. ~CONTAINS_DUPLICATE_EDGE g f v is)
+                        (ENUMERATOR n (LENGTH(VERTICES f)))))`;;
+
+let SEED = `SEED p = SEED_GRAPH (MAX_GON p)`;;
+
+let MINIMAL_FACE = `MINIMAL_FACE fs = MINIMAL_EL (\f. LENGTH(VERTICES f)) fs`;;
+
+let MINIMAL_VERTEX = `MINIMAL_VERTEX g f = MINIMAL_EL (HEIGHT g) (VERTICES f)`;;
+
+let NEXT_PLANE_EXEC' = `!p g. NEXT_PLANE p g =
+         (\fs. if NULL fs then []
+               else (\f. (\v. FLAT (MAP (\i. GENERATE_POLYGON i v f g)
+                                         (UPT 3 (SUC(MAX_GON p)))))
+                         (MINIMAL_VERTEX g f))
+                    (MINIMAL_FACE fs))
+         (NON_FINALS g)`;;
+
+let SQUANDER_VERTEX_EXEC = `SQUANDER_VERTEX p q =
+    if p = 0 /\ q = 3 then 6177
+    else if p = 0 /\ q = 4 then 9696
+    else if p = 1 /\ q = 2 then 6557
+    else if p = 1 /\ q = 3 then 6176
+    else if p = 2 /\ q = 1 then 7967
+    else if p = 2 /\ q = 2 then 4116
+    else if p = 2 /\ q = 3 then 12846
+    else if p = 3 /\ q = 1 then 3106
+    else if p = 3 /\ q = 2 then 8165
+    else if p = 4 /\ q = 0 then 3466
+    else if p = 4 /\ q = 1 then 3655
+    else if p = 5 /\ q = 0 then 395
+    else if p = 5 /\ q = 1 then 11354
+    else if p = 6 /\ q = 0 then 6854
+    else if p = 7 /\ q = 0 then 14493
+    else 15410`;;
+
+let SQUANDER_FACE_EXEC = `SQUANDER_FACE n =
+    if n = 3 then 0
+    else if n = 4 then 2058
+    else if n = 5 then 4819
+    else if n = 6 then 7120
+    else 15410`;;
+
+let EXCESS_AT_TYPE_EXEC = `EXCESS_AT_TYPE t q e =
+    if e = 0 then
+      if 7 < t + q then 15410
+      else SQUANDER_VERTEX t q - q * 2058
+    else if ~(t + q + e = 6) then 0
+    else if t = 5 then 6295 else 15410`;;
+
+let EXCESS_AT = `EXCESS_AT g v =
+    if ~FINAL_VERTEX g v then 0
+    else EXCESS_AT_TYPE (TRI g v) (QUAD g v) (EXCEPT g v)`;;
+
+let FACE_SQUANDER_LOWER_BOUND_EXEC = `!g. FACE_SQUANDER_LOWER_BOUND g =
+       LIST_SUM (\f. SQF (VERTICES f)) (FINALS g)`;;
+
+let TAME10_EXEC = `!g. TAME10 g <=> 13 <= COUNT_VERTICES g /\ COUNT_VERTICES g <= 15`;;
+
+let TAME11A_ALL = `!g. TAME11A g <=> ALL (\v. 3 <= DEGREE g v) (VERTICES_GRAPH g)`;;
+
+let TAME11B_ALL = `!g. TAME11B g <=>
+       ALL (\v. DEGREE g v <= (if EXCEPT g v = 0 then 7 else 6))
+           (VERTICES_GRAPH g)`;;
+
+let TAME12O_ALL = `!g. TAME12O g <=>
+       ALL (\v. EXCEPT g v = 0 \/ ~(DEGREE g v = 6) \/
+                TRI g v = 5 /\ QUAD g v = 0 /\ EXCEPT g v = 1)
+           (VERTICES_GRAPH g)`;;
+
+let TAME9A_ALL = `!g. TAME9A g <=>
+       ALL (\f. 3 <= LENGTH(VERTICES f) /\ LENGTH(VERTICES f) <= 6) (FACES g)`;;
+
+let DEGREE_PRUNED = `DEGREE_PRUNED g v <=>
+    v < COUNT_VERTICES g /\
+    (7 < DEGREE g v \/ 6 < DEGREE g v /\ ~(EXCEPT g v = 0))`;;
+
+let LB_CERT_VERTEX_OK = `LB_CERT_VERTEX_OK g v <=>
+    v < COUNT_VERTICES g /\ FINAL_VERTEX g v /\ DISTINCT (FACES_AT g v) /\
+    ALL (\f. MEM f (FACES g)) (FACES_AT g v)`;;
+
+let SEPARATED_PAIR_EXEC = `!g u v. SEPARATED_PAIR g u v <=>
+           ALL (\f. IS_LEN_GE5 (VERTICES f) \/ ~MEM f (FACES_AT g v))
+               (FACES_AT g u)`;;
+
+let SEPARATED_LIST = `SEPARATED_LIST g [] = T /\
+  SEPARATED_LIST g (CONS v vs) =
+    (ALL (SEPARATED_PAIR g v) vs /\ SEPARATED_LIST g vs)`;;
+
+let LB_CERT_OK = `LB_CERT_OK g cs <=>
+    DISTINCT cs /\ ALL (LB_CERT_VERTEX_OK g) cs /\ SEPARATED_LIST g cs`;;
+
+let LB_S = `LB_S g cs = FACE_SQUANDER_LOWER_BOUND g + LIST_SUM (EXCESS_AT g) cs`;;
+
+let SIZE_PRUNED_EXEC = `SIZE_PRUNED g cs i <=> 15410 <= LB_S g cs + SQUANDER_FACE i`;;
+
+let LB_PRUNED_EXEC = `LB_PRUNED g cs <=> 15410 <= LB_S g cs`;;
+
+let FACE_LIST_LEN = `FACE_LIST_LEN g <=> LENGTH(FACE_LIST_AT g) = COUNT_VERTICES g`;;
+
+let NEW_VERTS = `NEW_VERTS n [] = 0 /\
+  NEW_VERTS n (CONS NONE vos) = NEW_VERTS (SUC n) vos /\
+  NEW_VERTS n (CONS (SOME (v:num)) vos) = n + NEW_VERTS 0 vos`;;
+
+let POLY_VLISTS = `POLY_VLISTS n v f g =
+    MAP (INDEX_TO_VERTEX_LIST f v)
+        (FILTER (\is. ~CONTAINS_DUPLICATE_EDGE g f v is)
+                (ENUMERATOR n (LENGTH(VERTICES f))))`;;
+
+let ROTATE_TO = `ROTATE_TO (v:A) l =
+    APPEND (CONS v (SND (SPLIT_AT_LIN v l))) (FST (SPLIT_AT_LIN v l))`;;
+
+let IVL_FAST = `IVL_FAST (rvs:num list) is = HIDE_DUPS (MAP (\k. EL k rvs) is)`;;
+
+let POLY_VLISTS_FAST = `POLY_VLISTS_FAST n v f g =
+    MAP (IVL_FAST (ROTATE_TO v (VERTICES f)))
+        (FILTER (\is. ~CONTAINS_DUPLICATE_EDGE g f v is)
+                (ENUMERATOR n (LENGTH(VERTICES f))))`;;
+
+let DUP_EDGE_IDX = `DUP_EDGE_IDX (rvs:num list) (nbrs:(num list)list) i j <=>
+    2 <= j - i /\ 2 <= LENGTH rvs - (j - i) /\ MEM (EL j rvs) (EL i nbrs)`;;
+
+let CONTAINS_DUPLICATE_EDGE_IDX = `CONTAINS_DUPLICATE_EDGE_IDX rvs nbrs is <=>
+    CONTAINS_UNACCEPTABLE_EDGE (\i j. DUP_EDGE_IDX rvs nbrs i j) is`;;
+
+let PV_FAST2 = `PV_FAST2 rvs nbrs iss =
+    MAP (IVL_FAST rvs)
+        (FILTER (\is. ~CONTAINS_DUPLICATE_EDGE_IDX rvs nbrs is) iss)`;;
+
+let POLY_VLISTS_FAST2 = `POLY_VLISTS_FAST2 n v f g =
+    PV_FAST2 (ROTATE_TO v (VERTICES f))
+             (MAP (NEIGHBORS g) (ROTATE_TO v (VERTICES f)))
+             (ENUMERATOR n (LENGTH (VERTICES f)))`;;
+
+let VCOUNT_PRUNED_VL_EXEC = `VCOUNT_PRUNED_VL g vos <=> 15 < COUNT_VERTICES g + NEW_VERTS 0 (TL vos)`;;
+
+let MINFACE_WF = `MINFACE_WF g f <=>
+    DISTINCT (VERTICES f) /\ 3 <= LENGTH (VERTICES f) /\
+    ALL (\x. x < COUNT_VERTICES g) (VERTICES f)`;;
+
+let FGRAPH = `FGRAPH g = MAP VERTICES (FACES g)`;;
+
+let POLY_SIZES = `POLY_SIZES p = UPT 3 (SUC(MAX_GON p))`;;
+
+let APPLY_MAP = `APPLY_MAP (phi:num list) v = EL v phi`;;
+
+let FACE_MATCH = `FACE_MATCH (phi:num list) (fs2:((num)list)list) (f:num list)
+            (j:num,r:num) <=>
+    j < LENGTH fs2 /\ ROTATE r (MAP (APPLY_MAP phi) f) = EL j fs2`;;
+
+let FACE_MATCH_BACK = `FACE_MATCH_BACK (phi:num list) (fs1:((num)list)list) (f2:num list)
+                 (i:num,r:num) <=>
+    i < LENGTH fs1 /\ ROTATE r (MAP (APPLY_MAP phi) (EL i fs1)) = f2`;;
+
+let ISO_CERT_OK_EXEC = `ISO_CERT_OK (fs1:((num)list)list) (fs2:((num)list)list)
+             (phi:num list,rv:bool,m1:(num#num)list,m2:(num#num)list) <=>
+    (\fs2'. ALL (ALL (\v. v < LENGTH phi)) fs1 /\ DISTINCT phi /\
+            LENGTH m1 = LENGTH fs1 /\ ALL2 (FACE_MATCH phi fs2') fs1 m1 /\
+            LENGTH m2 = LENGTH fs2' /\ ALL2 (FACE_MATCH_BACK phi fs1) fs2' m2)
+    (if rv then MAP REVERSE fs2 else fs2)`;;
+
+let NF_AT = `NF_AT g v = LENGTH (FILTER (\f. ~FINAL_FACE f) (FACES_AT g v))`;;
+
+let SF_SUM = `SF_SUM g v = LIST_SUM (\f. SQUANDER_FACE (LENGTH (VERTICES f)))
+                        (FILTER FINAL_FACE (FACES_AT g v))`;;
+
+let CV0_EXEC = `CV0 t q nf =
+    MIN_LIST 15410
+      (MAP (\p. SQUANDER_VERTEX (FST p) (SND p))
+           (FILTER (\p. t <= FST p /\ q <= SND p /\ FST p + SND p <= 7 /\
+                        (if nf = 0 then FST p + SND p = t + q
+                         else t + q + nf <= FST p + SND p))
+                   [(0, 0); (0, SUC 0); (0, SUC (SUC 0)); (0, SUC (SUC (SUC 0))); (0, SUC (SUC (SUC (SUC 0)))); (0, SUC (SUC (SUC (SUC (SUC 0))))); (0, SUC (SUC (SUC (SUC (SUC (SUC 0)))))); (0, SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))));
+          (SUC 0, 0); (SUC 0, SUC 0); (SUC 0, SUC (SUC 0)); (SUC 0, SUC (SUC (SUC 0))); (SUC 0, SUC (SUC (SUC (SUC 0)))); (SUC 0, SUC (SUC (SUC (SUC (SUC 0))))); (SUC 0, SUC (SUC (SUC (SUC (SUC (SUC 0)))))); (SUC 0, SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))));
+          (SUC (SUC 0), 0); (SUC (SUC 0), SUC 0); (SUC (SUC 0), SUC (SUC 0)); (SUC (SUC 0), SUC (SUC (SUC 0))); (SUC (SUC 0), SUC (SUC (SUC (SUC 0)))); (SUC (SUC 0), SUC (SUC (SUC (SUC (SUC 0))))); (SUC (SUC 0), SUC (SUC (SUC (SUC (SUC (SUC 0)))))); (SUC (SUC 0), SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))));
+          (SUC (SUC (SUC 0)), 0); (SUC (SUC (SUC 0)), SUC 0); (SUC (SUC (SUC 0)), SUC (SUC 0)); (SUC (SUC (SUC 0)), SUC (SUC (SUC 0))); (SUC (SUC (SUC 0)), SUC (SUC (SUC (SUC 0)))); (SUC (SUC (SUC 0)), SUC (SUC (SUC (SUC (SUC 0))))); (SUC (SUC (SUC 0)), SUC (SUC (SUC (SUC (SUC (SUC 0)))))); (SUC (SUC (SUC 0)), SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))));
+          (SUC (SUC (SUC (SUC 0))), 0); (SUC (SUC (SUC (SUC 0))), SUC 0); (SUC (SUC (SUC (SUC 0))), SUC (SUC 0)); (SUC (SUC (SUC (SUC 0))), SUC (SUC (SUC 0))); (SUC (SUC (SUC (SUC 0))), SUC (SUC (SUC (SUC 0)))); (SUC (SUC (SUC (SUC 0))), SUC (SUC (SUC (SUC (SUC 0))))); (SUC (SUC (SUC (SUC 0))), SUC (SUC (SUC (SUC (SUC (SUC 0)))))); (SUC (SUC (SUC (SUC 0))), SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))));
+          (SUC (SUC (SUC (SUC (SUC 0)))), 0); (SUC (SUC (SUC (SUC (SUC 0)))), SUC 0); (SUC (SUC (SUC (SUC (SUC 0)))), SUC (SUC 0)); (SUC (SUC (SUC (SUC (SUC 0)))), SUC (SUC (SUC 0))); (SUC (SUC (SUC (SUC (SUC 0)))), SUC (SUC (SUC (SUC 0)))); (SUC (SUC (SUC (SUC (SUC 0)))), SUC (SUC (SUC (SUC (SUC 0))))); (SUC (SUC (SUC (SUC (SUC 0)))), SUC (SUC (SUC (SUC (SUC (SUC 0)))))); (SUC (SUC (SUC (SUC (SUC 0)))), SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))));
+          (SUC (SUC (SUC (SUC (SUC (SUC 0))))), 0); (SUC (SUC (SUC (SUC (SUC (SUC 0))))), SUC 0); (SUC (SUC (SUC (SUC (SUC (SUC 0))))), SUC (SUC 0)); (SUC (SUC (SUC (SUC (SUC (SUC 0))))), SUC (SUC (SUC 0))); (SUC (SUC (SUC (SUC (SUC (SUC 0))))), SUC (SUC (SUC (SUC 0)))); (SUC (SUC (SUC (SUC (SUC (SUC 0))))), SUC (SUC (SUC (SUC (SUC 0))))); (SUC (SUC (SUC (SUC (SUC (SUC 0))))), SUC (SUC (SUC (SUC (SUC (SUC 0)))))); (SUC (SUC (SUC (SUC (SUC (SUC 0))))), SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))));
+          (SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))), 0); (SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))), SUC 0); (SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))), SUC (SUC 0)); (SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))), SUC (SUC (SUC 0))); (SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))), SUC (SUC (SUC (SUC 0)))); (SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))), SUC (SUC (SUC (SUC (SUC 0))))); (SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))), SUC (SUC (SUC (SUC (SUC (SUC 0)))))); (SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))), SUC (SUC (SUC (SUC (SUC (SUC (SUC 0)))))))]))`;;
+
+let MIN_LIST = `MIN_LIST d [] = d /\
+  MIN_LIST d (CONS (h:num) t) = MIN h (MIN_LIST d t)`;;
+
+let COMPLETION_VALUE_EXEC' = `COMPLETION_VALUE t q e nf s =
+    MIN_LIST 15410
+     (APPEND (if e = 0 then [CV0 t q nf] else [])
+      (APPEND
+        (if t + q + e + nf <= 5 /\ (1 <= e \/ 0 < nf)
+         then [s + (if e = 0 then SQUANDER_FACE 5 else 0)] else [])
+        (if t + q + e + nf <= 6 /\
+            (0 < nf \/ 1 <= e /\ t + q + e + nf = 6) /\
+            t <= 5 /\ q = 0 /\ e <= 1
+         then [6295 + (if e = 1 then s else SQUANDER_FACE 5)]
+         else [])))`;;
+
+let XEXCESS_EXEC' = `XEXCESS g v =
+    if 15410 <= COMPLETION_VALUE (TRI g v) (QUAD g v) (EXCEPT g v) (NF_AT g v)
+                                 (SF_SUM g v)
+    then 15410
+    else COMPLETION_VALUE (TRI g v) (QUAD g v) (EXCEPT g v) (NF_AT g v)
+                          (SF_SUM g v) - SF_SUM g v`;;
+
+let XSEPARATED_PAIR = `XSEPARATED_PAIR g u v <=>
+    ALL (\f. 4 < LENGTH (VERTICES f) /\ FINAL_FACE f \/ ~MEM u (VERTICES f))
+        (FACES_AT g v)`;;
+
+let XSEPARATED_LIST = `XSEPARATED_LIST g [] = T /\
+  XSEPARATED_LIST g (CONS v vs) =
+    (ALL (\u. XSEPARATED_PAIR g u v /\ XSEPARATED_PAIR g v u) vs /\
+     XSEPARATED_LIST g vs)`;;
+
+let XLB_CERT_OK = `XLB_CERT_OK g cs <=>
+    DISTINCT cs /\ ALL (\v. v < COUNT_VERTICES g) cs /\ XSEPARATED_LIST g cs`;;
+
+let XLB_S = `XLB_S g cs = FACE_SQUANDER_LOWER_BOUND g + LIST_SUM (XEXCESS g) cs`;;
+
+let XLB_PRUNED_EXEC = `XLB_PRUNED g cs <=> 15410 <= XLB_S g cs`;;
+
+let XSIZE_PRUNED_EXEC = `XSIZE_PRUNED g cs f i <=>
+    ALL (\v. ~MEM v (VERTICES f)) cs /\
+    15410 <= XLB_S g cs + SQUANDER_FACE i`;;
+
+let XSIZE_PRUNED_S_EXEC = `XSIZE_PRUNED_S (g:graph) cs f i s <=>
+    ALL (\v. ~MEM v (VERTICES f)) cs /\
+    15410 <= s + SQUANDER_FACE i`;;
+
+let XEXCESS_OF_EXEC = `XEXCESS_OF l =
+    if 15410 <= COMPLETION_VALUE (EL 0 l) (EL 1 l) (EL 2 l) (EL 3 l) (EL 4 l)
+    then 15410
+    else COMPLETION_VALUE (EL 0 l) (EL 1 l) (EL 2 l) (EL 3 l) (EL 4 l) - EL 4 l`;;
+
+let SOMES = `SOMES [] = [] /\
+  SOMES (CONS NONE vos) = SOMES vos /\
+  SOMES (CONS (SOME (x:num)) vos) = CONS x (SOMES vos)`;;
+
+let ARCS_REC = `ARCS_REC (a:num) (k:num) (base:num) [] = [] /\
+  ARCS_REC a k base (CONS NONE vos) = ARCS_REC a (k + 1) base vos /\
+  ARCS_REC a k base (CONS (SOME b) vos) =
+    CONS (a,k,b,base) (ARCS_REC b 0 (base + k) vos)`;;
+
+let ARCS = `ARCS n (vl:(num option)list) = ARCS_REC (THE (HD vl)) 0 n (TL vl)`;;
+
+let ARC_A = `ARC_A (ac:num#num#num#num) = FST ac`;;
+
+let ARC_K = `ARC_K (ac:num#num#num#num) = FST (SND ac)`;;
+
+let ARC_B = `ARC_B (ac:num#num#num#num) = FST (SND (SND ac))`;;
+
+let ARC_BASE = `ARC_BASE (ac:num#num#num#num) = SND (SND (SND ac))`;;
+
+let TRIVIAL_ARC = `TRIVIAL_ARC f ac <=>
+    ARC_K ac = 0 /\ NEXT_VERTEX f (ARC_A ac) = ARC_B ac`;;
+
+let PIECE_ARCS = `PIECE_ARCS f n vl = FILTER (\ac. ~TRIVIAL_ARC f ac) (ARCS n vl)`;;
+
+let ARC_VERTS = `ARC_VERTS f ac =
+    APPEND (CONS (ARC_A ac) (BETWEEN (VERTICES f) (ARC_A ac) (ARC_B ac)))
+           (APPEND [ARC_B ac]
+                   (UPT (ARC_BASE ac) (ARC_BASE ac + ARC_K ac)))`;;
+
+let PIECES_AT = `PIECES_AT f n vl u =
+    LENGTH (FILTER (\ac. u = ARC_A ac \/ u = ARC_B ac)
+                   (PIECE_ARCS f n vl))`;;
+
+let NEW_COUNT = `NEW_COUNT (vl:(num option)list) = LENGTH vl - LENGTH (SOMES vl)`;;
+
+let POLY_VERTS = `POLY_VERTS n vl = APPEND (SOMES vl) (UPT n (n + NEW_COUNT vl))`;;
+
+let XCOUNTS_AFTER_I = `XCOUNTS_AFTER_I g f vl i n u =
+    if n <= u then
+      [if i = 3 then 1 else 0; if i = 4 then 1 else 0;
+       if 5 <= i then 1 else 0; 1; SQUANDER_FACE i]
+    else if MEM u (SOMES vl) then
+      [TRI g u + (if i = 3 then 1 else 0); QUAD g u + (if i = 4 then 1 else 0);
+       EXCEPT g u + (if 5 <= i then 1 else 0);
+       NF_AT g u - 1 + PIECES_AT f n vl u; SF_SUM g u + SQUANDER_FACE i]
+    else [TRI g u; QUAD g u; EXCEPT g u; NF_AT g u; SF_SUM g u]`;;
+
+let XCOUNTS_AFTER = `XCOUNTS_AFTER g f vl u =
+    XCOUNTS_AFTER_I g f vl (LENGTH vl) (COUNT_VERTICES g) u`;;
+
+let LEAF_SEP_OLD_EXEC = `!g f u w. LEAF_SEP_OLD g f u w <=>
+     (if w < COUNT_VERTICES g then
+        ALL (\h. h = f \/ 4 < LENGTH (VERTICES h) /\ FINAL_FACE h \/
+                 ~MEM u (VERTICES h)) (FACES_AT g w)
+      else T)`;;
+
+let LEAF_SEP_PIECES = `LEAF_SEP_PIECES f n vl u w <=>
+    ALL (\ac. ~(MEM u (ARC_VERTS f ac) /\ MEM w (ARC_VERTS f ac)))
+        (PIECE_ARCS f n vl)`;;
+
+let LEAF_SEP_POLY = `LEAF_SEP_POLY n vl u w <=>
+    4 < LENGTH vl \/ ~(MEM u (POLY_VERTS n vl) /\ MEM w (POLY_VERTS n vl))`;;
+
+let LEAF_SEP_PAIR = `LEAF_SEP_PAIR g f vl u w <=>
+    LEAF_SEP_OLD g f u w /\ LEAF_SEP_OLD g f w u /\
+    LEAF_SEP_PIECES f (COUNT_VERTICES g) vl u w /\
+    LEAF_SEP_POLY (COUNT_VERTICES g) vl u w`;;
+
+let LEAF_SEP = `LEAF_SEP g f vl [] = T /\
+  LEAF_SEP g f vl (CONS u cs) =
+    (ALL (\w. LEAF_SEP_PAIR g f vl u w) cs /\ LEAF_SEP g f vl cs)`;;
+
+let XLB_LEAF_EXEC = `XLB_LEAF g f vl cs <=>
+    DISTINCT cs /\
+    ALL (\u. u < COUNT_VERTICES g + NEW_COUNT vl) cs /\
+    LEAF_SEP g f vl cs /\
+    15410 <= FACE_SQUANDER_LOWER_BOUND g +
+                       SQUANDER_FACE (LENGTH vl) +
+                       LIST_SUM (\u. XEXCESS_OF (XCOUNTS_AFTER g f vl u)) cs`;;
+
+let PIECES_AT_A = `PIECES_AT_A (arcs:(num#num#num#num)list) u =
+    LENGTH (FILTER (\ac. u = ARC_A ac \/ u = ARC_B ac) arcs)`;;
+
+let XCOUNTS_AFTER_A = `XCOUNTS_AFTER_A g (vl:(num option)list) i n arcs u =
+    if n <= u then
+      [if i = 3 then 1 else 0; if i = 4 then 1 else 0;
+       if 5 <= i then 1 else 0; 1; SQUANDER_FACE i]
+    else if MEM u (SOMES vl) then
+      [TRI g u + (if i = 3 then 1 else 0); QUAD g u + (if i = 4 then 1 else 0);
+       EXCEPT g u + (if 5 <= i then 1 else 0);
+       NF_AT g u - 1 + PIECES_AT_A arcs u; SF_SUM g u + SQUANDER_FACE i]
+    else [TRI g u; QUAD g u; EXCEPT g u; NF_AT g u; SF_SUM g u]`;;
+
+let LEAF_SEP_PIECES_A = `LEAF_SEP_PIECES_A f arcs u w <=>
+    ALL (\ac. ~(MEM u (ARC_VERTS f ac) /\ MEM w (ARC_VERTS f ac))) arcs`;;
+
+let LEAF_SEP_PAIR_A = `LEAF_SEP_PAIR_A g f vl arcs u w <=>
+    LEAF_SEP_OLD g f u w /\ LEAF_SEP_OLD g f w u /\
+    LEAF_SEP_PIECES_A f arcs u w /\
+    LEAF_SEP_POLY (COUNT_VERTICES g) vl u w`;;
+
+let LEAF_SEP_A = `LEAF_SEP_A g f vl arcs [] = T /\
+  LEAF_SEP_A g f vl arcs (CONS u cs) =
+    (ALL (\w. LEAF_SEP_PAIR_A g f vl arcs u w) cs /\
+     LEAF_SEP_A g f vl arcs cs)`;;
+
+let XLB_LEAF_A_EXEC = `XLB_LEAF_A g f vl cs s arcs <=>
+    DISTINCT cs /\
+    ALL (\u. u < COUNT_VERTICES g + NEW_COUNT vl) cs /\
+    LEAF_SEP_A g f vl arcs cs /\
+    15410 <= s + SQUANDER_FACE (LENGTH vl) +
+                       LIST_SUM (\u. XEXCESS_OF
+                                   (XCOUNTS_AFTER_A g vl (LENGTH vl)
+                                                    (COUNT_VERTICES g) arcs u))
+                                cs`;;
+
+let XLB_LEAF_S = `XLB_LEAF_S g f vl cs s =
+    XLB_LEAF_A g f vl cs s (PIECE_ARCS f (COUNT_VERTICES g) vl)`;;

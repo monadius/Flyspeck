@@ -32,13 +32,20 @@ Tg_driver.max_nodes := 0;;
 
 let out_counters = true;;
 let out_time = true;;
+let out_args = true;;
+
+let out_time = false;;
+let out_counters = false;;
+let out_args = false;;
 
 loadt "../../dev/b.hl";;
 
 (* 356.1 (no counters) *)
+(* 329.6 *)
 serial [|""; ""; "0"; "graph_native/cert0.txt"|];;
 (* tg_serial [|""; ""; "0"; "graph_native/cert0.txt"|];; *)
 
+let res = analyze_arg_lists();;
 print_prof ();;
 get_all_counters();;
 get_counter "f_CV0";;
@@ -60,9 +67,273 @@ get_time_counter "f_TRI";;
 (* 0.167 *)
 get_time_counter "f_NEXT_VERTEX";;
 
+(* 6.908 *)
+get_time_counter "f_SQUANDER_FACE";;
+
 get_time_counter "f_CV0";;
+get_time_counter "f_POLY_SIZES";;
+get_time_counter "f_UPT";;
+get_time_counter "f_COMPLETION_VALUE";;
+get_time_counter "f_XEXCESS_OF";;
+get_time_counter "f_THE_num";;
+get_time_counter "f_MIN_LIST";;
+get_time_counter "f_SOMES";;
+get_time_counter "f_HEIGHTS_NEW_VERTICES";;
+get_time_counter "f_ENUMERATOR";;
+get_time_counter "f_FINAL_FACE";;
+get_time_counter "f_FST_num_num";;
+get_time_counter "f_SND_num_num_num";;
+get_time_counter "f_VERTICES";;
+
+let get_args name =
+  !(create_arg_list name)
+  |> freqs;;
+
+get_args "f_SQUANDER_FACE";;
+get_args "f_POLY_SIZES";;
+get_args "f_UPT";;
+get_args "f_COMPLETION_VALUE";;
+get_args "f_CV0";;
+get_args "f_XEXCESS_OF";;
+get_args "f_THE_num";;
+get_args "f_MIN_LIST";;
+get_args "f_SOMES";;
+get_args "f_HEIGHTS_NEW_VERTICES";;
+get_args "f_ENUMERATOR";;
+get_args "f_VERTICES";;
+
+
+f_UPT (anum 3) (anum 4) None;;
+create_arg_list "f_UPT";;
 
 let p = 0;;
 let p_tm = anum p;;
 let arch = archive_tm;;
 let th_seed = f_SEED p_tm None;;
+
+
+[("f_NOT", (0.999999215564456256, 2549604));
+   ("f_SQUANDER_FACE", (0.999997195536977523, 713149));
+   ("f_EQ_facetype", (0.999996864245341399, 637805));
+   ("f_MAX_GON", (0.999966319760196676, 29691));
+   ("f_POLY_SIZES", (0.9999663186258, 29690));
+   ("f_COMPLETION_VALUE", (0.999891228862839543, 119517));
+   ("f_CV0", (0.999891228862839543, 119517));
+   ("f_XEXCESS_OF", (0.999890506030590931, 118728));
+   ("f_UPT", (0.999878553982754714, 296428));
+   ("f_THE_num", (0.999857540491375762, 91254));
+   ("f_MIN_LIST", (0.99985390796201612, 266955));
+   ("f_UPT_REC", (0.999752963168591191, 392654));
+   ("f_SOMES", (0.999730076928075473, 1600456));
+   ("f_HEIGHTS_NEW_VERTICES", (0.999692086626295828, 38972));
+   ("f_ENUMERATOR", (0.999629504883799314, 29690));
+   ("f_FINAL_FACE", (0.999587398105976299, 3700904));
+   ("f_SND_num_num_num", (0.999579519555387597, 328196));
+   ("f_FST_num_num", (0.999377916018662549, 221835));
+   ("f_VERTICES", (0.999361711642379635, 3846224));
+   ("f_HEIGHTS_NEW_VERTICES_abs1", (0.999331774139659235, 8979))]
+
+  [("f_FST_num_num_num", (0.999319462868809238, 202781));
+   ("f_LENGTH_num_option", (0.999260267357376497, 455570));
+   ("f_IS_LEN_GE5_num", (0.999057732159497114, 575208));
+   ("f_SF_SUM_abs1", (0.999057732159497114, 575208));
+   ("f_IS_LEN4_num", (0.999057732159497114, 575208));
+   ("f_IS_LEN3_num", (0.999057732159497114, 575208));
+   ("f_SND_num_num_num_num", (0.998956640306453925, 530977));
+   ("f_SND_num_num", (0.99886794903914855, 107769));
+   ("f_FACE_SQUANDER_LOWER_BOUND_abs1", (0.998835276637538128, 476508));
+   ("f_SQF_num", (0.998835276637538128, 476508));
+   ("f_NEW_VERTS", (0.998826881179822323, 17901));
+   ("f_NON_FINALS_abs1", (0.99875546848956509, 1214915));
+   ("f_SET_FINAL", (0.998747078667971855, 503623));
+   ("f_LENGTH_num", (0.998704888103841837, 1854666));
+   ("f_REVERSE_num", (0.998545983278807725, 57771));
+   ("f_NEW_COUNT", (0.998316893494818336, 200225));
+   ("f_HIDE_DUPS_REC_num", (0.998254835203642554, 291663));
+   ("f_FST_num_num_num_num", (0.99782667540181, 254909));
+   ("f_ARC_A", (0.99782667540181, 254909));
+   ("f_EXCEPT_abs1", (0.997800268107023269, 637805))]
+
+  [("f_QUAD_abs1", (0.997800268107023269, 637805));
+   ("f_TRI_abs1", (0.997800268107023269, 637805));
+   ("f_FST_num_list_num_list", (0.9975327709793671, 757530));
+   ("f_SND_num_list_num_list", (0.9975327709793671, 757530));
+   ("f_ARC_B", (0.997492202742280787, 220911));
+   ("f_ARC_K", (0.997267988618263, 202781));
+   ("f_SPLIT_AT_LIN_abs1_num", (0.996059573532644515, 727840));
+   ("f_SPLIT_AT_LIN_num", (0.996040116023665822, 1283876));
+   ("f_HIDE_DUPS_num", (0.995865090875428183, 97221));
+   ("f_TL_num_option", (0.995865090875428183, 97221));
+   ("f_ARC_BASE", (0.995861490422705886, 107285));
+   ("f_HD_num_option", (0.995715256317531328, 91254));
+   ("f_BETWEEN_abs2_num", (0.993767313019390586, 166060));
+   ("f_APPEND_num", (0.993381192454025119, 1010605));
+   ("f_ROTATE_num", (0.993239526996058331, 43636));
+   ("f_NEXT_VERTEX", (0.991336106263683625, 715729));
+   ("f_ARCS_REC", (0.990922835026608606, 165360));
+   ("f_SPLIT_AT_num", (0.990840625748082071, 526346));
+   ("f_ROTATE1_num", (0.990569823434992, 19936));
+   ("f_IVL_FAST_abs1", (0.990543881123077, 291663))]
+
+  [("f_NEIGHBORS_abs1", (0.9899263234491541, 571688));
+   ("f_POLY_VERTS", (0.989349301201271181, 81497));
+   ("f_LENGTH_num_num_num_num", (0.988640728749382691, 54669));
+   ("f_LENGTH_num_list", (0.985770382964942127, 49404));
+   ("f_EL_num", (0.985498271424109618, 742808));
+   ("f_MEM_num", (0.984709993648905, 1667429));
+   ("f_BETWEEN_abs3_num", (0.983771482705713907, 97113));
+   ("f_ARCS", (0.982601596516690878, 55120));
+   ("f_BETWEEN_abs1_num", (0.982137225323266416, 263173));
+   ("f_EQ_face_list", (0.982068933438764557, 42998));
+   ("f_EQ_face", (0.981817763063712823, 4428718));
+   ("f_EQ_num_list", (0.980420550419559667, 393627));
+   ("f_LENGTH_face", (0.979850617363598353, 480511));
+   ("f_BETWEEN_num", (0.978132255208551071, 263173));
+   ("f_IVL_FAST", (0.978080867302331791, 97221));
+   ("f_PIECES_AT_abs1", (0.977195238664912091, 66872));
+   ("f_MINIMAL_FACE_abs1", (0.972835888187556397, 26616));
+   ("f_ROTATE_TO_num", (0.970764567194341566, 29690));
+   ("f_ARC_VERTS", (0.970331360395209064, 107285));
+   ("f_DISTINCT_num", (0.968658876148297598, 182444))]
+
+  [("f_PIECES_AT_A", (0.968537928259159631, 54669));
+   ("f_MAP_num_list_num_option_list", (0.965678679690131325, 29690));
+   ("f_FILTER_num_num_num_num", (0.958866553115521603, 109789));
+   ("f_TRIVIAL_ARC", (0.949285833961631909, 95496));
+   ("f_PIECE_ARCS_abs1", (0.949285833961631909, 95496));
+   ("f_PIECE_ARCS", (0.949274310595065285, 55120));
+   ("f_SPLIT_FACE_PAIR_abs3", (0.949091655547572577, 38972));
+   ("f_REPLICATE_face_list", (0.944093420915441572, 47955));
+   ("f_MAP_num_list_num_list", (0.935374149659864, 294));
+   ("f_SPLIT_FACE_PAIR_abs2", (0.934337473057579748, 38972));
+   ("f_SPLIT_FACE_PAIR", (0.934337473057579748, 38972));
+   ("f_SPLIT_FACE_PAIR_abs1", (0.934337473057579748, 38972));
+   ("f_MINIMAL_EL_face", (0.926345411414484343, 42998));
+   ("f_MAP_num_num", (0.919083387015066311, 159893));
+   ("f_FACE_LIST_AT", (0.917944442253632253, 887545));
+   ("f_APPLY_MAP", (0.912883263009845236, 71100));
+   ("f_MINIMAL_FACE", (0.91111485348602228, 29690));
+   ("f_NULL_face", (0.91111485348602228, 29690));
+   ("f_LEAF_SEP_OLD_abs1", (0.895899316077812813, 877439));
+   ("f_COUNT_VERTICES", (0.895236382729280078, 695165))]
+
+  [("f_MAP_face_num", (0.872599548933338243, 135235));
+   ("f_ENUM_BASE_abs1", (0.844155844155844104, 77));
+   ("f_MINIMAL_EL_abs1_face", (0.83678990081154192, 13308));
+   ("f_XSEPARATED_PAIR_abs1", (0.830945121951219501, 6560));
+   ("f_FILTER_face", (0.826591162464078377, 2268483));
+   ("f_ISO_CERT_OK_abs2", (0.825766526019690583, 35550));
+   ("f_LEAF_SEP_POLY", (0.817281617728259913, 81497));
+   ("f_ALL_face", (0.808038772201521871, 1102233));
+   ("f_ALL_num_num_num_num", (0.801363477450180661, 188782));
+   ("f_EL_face_list", (0.800392587817307488, 898143));
+   ("f_APPEND_face", (0.782709084657396192, 500228));
+   ("f_FACES_AT", (0.769852701415473462, 778962));
+   ("f_HEIGHTS", (0.760087492487665828, 286196));
+   ("f_LIST_SUM_face", (0.752071549714686705, 1196930));
+   ("f_LEAF_SEP_PIECES_A", (0.748285212952624068, 81497));
+   ("f_MAKE_FACE_FINAL_LIST", (0.747799445219936354, 503623));
+   ("f_LEAF_SEP_PIECES_abs1", (0.744074194901430785, 107285));
+   ("f_HD_num", (0.712304467021448118, 6201));
+   ("f_REPLACE_face", (0.712222589905906478, 3910366));
+   ("f_SQUANDER_VERTEX", (0.706521739130434812, 92))]
+
+val it : (string * (float * int)) list =
+  [("f_CV0_abs1", (0.706521739130434812, 92));
+   ("f_EL_num_list", (0.493287246994991, 122379));
+   ("f_FACES", (0.470478946166146328, 131330));
+   ("f_PV_FAST2", (0.387739979791175471, 29690));
+   ("f_MAP_face_num_list", (0.384155455904334808, 1338));
+   ("f_MAP_face_list_face_list", (0.360194501360897867, 65398));
+   ("f_HEIGHT", (0.359349092804017223, 211090));
+   ("f_CONTAINS_UNACCEPTABLE_EDGE_SND", (0.326832680182265134, 194442));
+   ("f_FILTER_num_list", (0.321652595531143, 58986));
+   ("f_PV_FAST2_abs1", (0.319863565303898811, 105545));
+   ("f_CONTAINS_DUPLICATE_EDGE_IDX", (0.319863565303898811, 105545));
+   ("f_CONTAINS_UNACCEPTABLE_EDGE", (0.319863565303898811, 105545));
+   ("f_QUAD", (0.304192782406591644, 119181));
+   ("f_EXCEPT", (0.304192782406591644, 119181));
+   ("f_TRI", (0.304192782406591644, 119181));
+   ("f_SF_SUM", (0.304192782406591644, 119181));
+   ("f_NF_AT", (0.304192782406591644, 119181));
+   ("f_NEXT_ELEM_num", (0.297533490484677754, 17393));
+   ("f_CONTAINS_DUPLICATE_EDGE_IDX_abs1", (0.296479433138521209, 143386));
+   ("f_DUP_EDGE_IDX", (0.296479433138521209, 143386))]
+
+  [("f_LEAF_SEP_OLD", (0.25508914438568292, 162994));
+   ("f_APPEND_face_list", (0.230606724204560104, 77630));
+   ("f_UPDATE_AT_face_list", (0.132592263100773267, 2095258));
+   ("f_MAP_num_num_num", (0.0588235294117647051, 17));
+   ("f_ALL_num", (0.0454008418917803552, 424045));
+   ("f_LENGTH_num_num", (0.031437125748502992, 2004));
+   ("f_ALL_num_list", (0.0261517286049712562, 12351));
+   ("f_SUBDIV_FACE_REC", (0., 108402)); ("f_SPLIT_FACE_abs9", (0., 38972));
+   ("f_XLB_LEAF_A", (0., 55120)); ("f_SPLIT_FACE_abs10", (0., 38972));
+   ("f_LENGTH_face_list", (0., 33477)); ("f_SPLIT_FACE_abs2", (0., 38972));
+   ("f_DEGREE_PRUNED", (0., 3787));
+   ("f_FACE_SQUANDER_LOWER_BOUND", (0., 26033));
+   ("f_SPLIT_FACE_abs1", (0., 38972)); ("f_MAP_AT_face_list", (0., 370555));
+   ("f_MINIMAL_VERTEX", (0., 29690)); ("f_XCOUNTS_AFTER_A", (0., 118728));
+   ("f_LEAF_SEP_A", (0., 173848))]
+
+  [("f_SPLIT_FACE_abs6", (0., 38972)); ("f_NEIGHBORS", (0., 135235));
+   ("f_XLB_PRUNED", (0., 379)); ("f_FACE_LIST_LEN", (0., 33477));
+   ("f_FACE_MATCH", (0., 11850)); ("f_XSEPARATED_LIST_abs1", (0., 615));
+   ("f_SUBDIV_FACE", (0., 36134)); ("f_ALL2_num_list_num_num", (0., 24702));
+   ("f_SPLIT_FACE_abs12", (0., 38972)); ("f_XSEPARATED_LIST", (0., 1168));
+   ("f_ENUMERATOR_abs1", (0., 11)); ("f_ISO_CERT_OK", (0., 501));
+   ("f_XLB_LEAF_A_abs2", (0., 118728)); ("f_FINALS", (0., 26033));
+   ("f_XEXCESS", (0., 789)); ("f_LIST_SUM_num", (0., 175016));
+   ("f_REPLACE_FACES_AT_face", (0., 155888));
+   ("f_SPLIT_FACE_abs7", (0., 38972)); ("f_ISO_CERT_OK_abs1", (0., 501));
+   ("f_NON_FINALS", (0., 29690))]
+
+  [("f_SPLIT_FACE_abs4", (0., 38972)); ("f_XLB_LEAF_abs1", (0., 118728));
+   ("f_XLB_S", (0., 379)); ("f_SUBDIV_FACE_REC_abs2", (0., 38972));
+   ("f_ENUMERATOR_abs3", (0., 77)); ("f_LEAF_SEP_PAIR_A", (0., 81497));
+   ("f_DEGREE", (0., 3787)); ("f_MAP_num_num_list", (0., 29715));
+   ("f_SPLIT_FACE_abs3", (0., 38972)); ("f_SPLIT_FACE", (0., 38972));
+   ("f_XLB_CERT_OK_abs1", (0., 789)); ("f_SEED", (0., 1));
+   ("f_SPLIT_FACE_abs11", (0., 38972)); ("f_MINIMAL_EL_num", (0., 135235));
+   ("f_ENUMERATOR_abs2", (0., 11)); ("f_FACE_MATCH_BACK", (0., 11850));
+   ("f_SUBDIV_FACE_REC_abs1", (0., 38972)); ("f_SEED_GRAPH", (0., 1));
+   ("f_SPLIT_FACE_abs8", (0., 38972)); ("f_MAKE_FACE_FINAL", (0., 36134))]
+
+  [("f_MINIMAL_EL_abs1_num", (0., 105545)); ("f_CV0_abs2", (0., 832));
+   ("f_FILTER_num_num", (0., 416)); ("f_VCOUNT_PRUNED_VL", (0., 5967));
+   ("f_LEAF_SEP_A_abs1", (0., 81497)); ("f_ITER_num_list_list", (0., 11));
+   ("f_XSEPARATED_PAIR", (0., 1230)); ("f_XLB_CERT_OK", (0., 379));
+   ("f_ENUM_BASE", (0., 11)); ("f_FGRAPH", (0., 501));
+   ("f_POLY_VLISTS_FAST2", (0., 29690)); ("f_FINAL_GRAPH", (0., 2658));
+   ("f_XLB_LEAF_S", (0., 55120)); ("f_TAME10", (0., 1778));
+   ("f_SPLIT_FACE_abs5", (0., 38972)); ("f_REPLICATE_num", (0., 4));
+   ("f_LB_CERT_VERTEX_OK_abs1", (nan, 0)); ("f_EXCESS_AT", (nan, 0));
+   ("f_LB_S", (nan, 0)); ("f_NEXT_PLANE", (nan, 0))]
+
+  [("f_ENUM_APPEND", (nan, 0)); ("f_ENUM_APPEND_abs2", (nan, 0));
+   ("f_NEXT_PLANE_abs1", (nan, 0)); ("f_SEPARATED_LIST", (nan, 0));
+   ("f_MAP_num_option_list_graph", (nan, 0)); ("f_POLY_VLISTS", (nan, 0));
+   ("f_MEM_face", (nan, 0)); ("f_GENERATE_POLYGON", (nan, 0));
+   ("f_DISTINCT_face", (nan, 0)); ("f_EXCESS_AT_TYPE", (nan, 0));
+   ("f_SIZE_PRUNED", (nan, 0)); ("f_CONTAINS_DUPLICATE_EDGE", (nan, 0));
+   ("f_FINAL_VERTEX", (nan, 0)); ("f_FLAT_num_list", (nan, 0));
+   ("f_NEXT_VERTICES", (nan, 0)); ("f_DUPLICATE_EDGE", (nan, 0));
+   ("f_CONTAINS_DUPLICATE_EDGE_abs1", (nan, 0));
+   ("f_DIRECTED_LENGTH", (nan, 0)); ("f_LB_CERT_VERTEX_OK", (nan, 0));
+   ("f_XSIZE_PRUNED_S", (nan, 0))]
+
+  [("f_VERTICES_GRAPH", (nan, 0)); ("f_NEXT_PLANE_abs3", (nan, 0));
+   ("f_SEPARATED_PAIR", (nan, 0)); ("f_APPEND_num_list", (nan, 0));
+   ("f_INDEX_TO_VERTEX_LIST", (nan, 0)); ("f_APPEND_graph", (nan, 0));
+   ("f_GENERATE_POLYGON_abs1", (nan, 0)); ("f_NULL_num", (nan, 0));
+   ("f_XSIZE_PRUNED_abs1", (nan, 0)); ("f_NEXT_PLANE_abs4", (nan, 0));
+   ("f_TAME11A_abs1", (nan, 0)); ("f_SEPARATED_PAIR_abs1", (nan, 0));
+   ("f_TAME12O_abs1", (nan, 0)); ("f_MAP_num_list_num_list_list", (nan, 0));
+   ("f_TAME11A", (nan, 0)); ("f_MAP_num_graph_list", (nan, 0));
+   ("f_TAME12O", (nan, 0)); ("f_FLAT_graph", (nan, 0));
+   ("f_NEXT_PLANE_abs2", (nan, 0));
+   ("f_INDEX_TO_VERTEX_LIST_abs1", (nan, 0))]
+
+  [("f_MINFACE_WF_abs1", (nan, 0)); ("f_MINFACE_WF", (nan, 0));
+   ("f_LAST_num", (nan, 0)); ("f_LB_CERT_OK", (nan, 0));
+   ("f_LB_PRUNED", (nan, 0)); ("f_ENUM_APPEND_abs1", (nan, 0))]

@@ -175,7 +175,7 @@ let tame_rules = [
   "VCOUNT_PRUNED_VL_EXEC", VCOUNT_PRUNED_VL_EXEC, [];
   "MINFACE_WF", MINFACE_WF, [];
   "FGRAPH", FGRAPH, [];
-  "POLY_SIZES", POLY_SIZES, [];
+  "POLY_SIZES_EXEC", POLY_SIZES_EXEC, [];
   "APPLY_MAP", APPLY_MAP, [];
   "FACE_MATCH", FACE_MATCH, [];
   "FACE_MATCH_BACK", FACE_MATCH_BACK, [];
@@ -185,7 +185,7 @@ let tame_rules = [
   "NF_AT", NF_AT, [];
   "SF_SUM", SF_SUM, [];
   "CV0_EXEC", CV0_EXEC, [];
-  "MIN_LIST", MIN_LIST, [];
+  "MIN_LIST_UNROLL3", MIN_LIST_UNROLL3, [];
   "COMPLETION_VALUE_EXEC'", COMPLETION_VALUE_EXEC', [];
   "XEXCESS_EXEC'", XEXCESS_EXEC', [];
   "XSEPARATED_PAIR", XSEPARATED_PAIR, [];
@@ -196,7 +196,7 @@ let tame_rules = [
   "XSIZE_PRUNED_EXEC", XSIZE_PRUNED_EXEC, [];
   "XSIZE_PRUNED_S_EXEC", XSIZE_PRUNED_S_EXEC, [];
   "XEXCESS_OF_EXEC", XEXCESS_OF_EXEC, [];
-  "SOMES", SOMES, [];
+  "SOMES_UNROLL1", SOMES_UNROLL1, [];
   "ARCS_REC", ARCS_REC, [];
   "ARCS", ARCS, [];
   "ARC_A", ARC_A, [];
@@ -227,13 +227,16 @@ let tame_rules = [
 ];;
 
 
-let my_tame_db ?(eliminate_abs = true) ?(counters = true) ?(inst_types = true)
-            ?(time = true) ?(result = `NEXT_PLANE p g`) rules =
+let my_tame_db ?(eliminate_abs = true) ?(inst_types = true)
+            ?(counters = true) ?(time = true) ?(args = false)
+            ?(result = `NEXT_PLANE p g`) rules =
   let db = add_thms (Tg_eval_db.tame_default_db ~eliminate_abs ()) rules in
   let consts = dependencies db result ~inst_types in
   if counters then set_extra_for_all db (Extra_counter 0);
   if time then set_extra_for_all db Extra_time;
-  set_extra_for_consts db (Extra_memo (Assoc_memo 64)) [`ENUMERATOR`];
+  if args then set_extra_for_all db Extra_arg_list;
+  set_extra_for_consts db (Extra_memo (Assoc_memo 256)) 
+    [`ENUMERATOR`; `UPT`; `COMPLETION_VALUE`; `XEXCESS_OF`; `HEIGHTS_NEW_VERTICES`];
   set_extra_for_consts db (Extra_memo (Assoc_memo 1024)) [`CV0`];
   set_extra_for_consts db (Extra_memo (Assoc_memo 65536)) [`NEXT_VERTEX`];
   db, consts;;
@@ -241,6 +244,7 @@ let my_tame_db ?(eliminate_abs = true) ?(counters = true) ?(inst_types = true)
 let db, consts = my_tame_db
     ~counters:out_counters
     ~time:out_time
+    ~args:out_args
     ~result:`SEED,ISO_CERT_OK,FGRAPH,TAME11A,TAME12O,TAME10,FINAL_GRAPH,LB_PRUNED,XLB_PRUNED,DEGREE_PRUNED,POLY_SIZES,VCOUNT_PRUNED_VL,XLB_LEAF_S,POLY_VLISTS,POLY_VLISTS_FAST2,SIZE_PRUNED,XSIZE_PRUNED_S,NEXT_PLANE,FACE_LIST_LEN,LB_CERT_OK,MINFACE_WF,XLB_CERT_OK,XLB_S` 
     tame_rules;;
 
