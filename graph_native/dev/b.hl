@@ -464,7 +464,7 @@ and succ_thm p_tm arch g' d inv' ic =
       let th_fin = eqt_elim_eval (f_FINAL_GRAPH g' None) in
       let th_fg = f_FGRAPH g' None in
       let fs1 = rand (concl th_fg) in
-      let (y, th_mem) = archive_member c q in
+      let (y, th_mem) = timed "archive_member" (fun () -> archive_member c q) in
       let cert = mk_pair (anum_list phi,
                    mk_pair ((if rv then t_tm else f_tm),
                      mk_pair (anum_pair_list m1,

@@ -1,0 +1,2298 @@
+(* ========================================================================= *)
+(* c2.hl                                                                     *)
+(*                                                                           *)
+(* Optimized executable rewrite theorems and fused helpers for the           *)
+(* proof-producing evaluator:                                                *)
+(*   - eliminates FST, SND, HD, TL and LET/lambda abstractions               *)
+(*   - uses pattern matching on GRAPH, FACE, facetype, option, pair, list    *)
+(*     and small numerals                                                    *)
+(*   - avoids repeated computations via CSE-friendly ordering and            *)
+(*     single-pass fused helpers (XSTATS5_ACC, VL_INFO, PIECE_ARCS_REC,      *)
+(*     IVL_FAST_REC, SF_SUM_LIST, MINIMAL_EL_REC, etc.)                      *)
+(*   - keeps memoized functions (NEXT_VERTEX, ENUMERATOR, UPT,               *)
+(*     COMPLETION_VALUE, XEXCESS_OF, HEIGHTS_NEW_VERTICES, CV0) intact       *)
+(* ========================================================================= *)
+
+open Tg_list;;
+open Tg_graph;;
+open Tg_enum;;
+open Tg_tame;;
+open Tg_iso;;
+open Tg_exec;;
+open Tg_check;;
+open Tg_sound;;
+open Tg_mono;;
+open Tg_lbthm;;
+open Tg_isothm;;
+open Tg_newverts;;
+open Tg_archive_data;;
+open Tg_archive;;
+open Tg_wf;;
+open Tg_wf_inv;;
+open Tg_inv;;
+open Tg_xlb;;
+open Tg_xcheck;;
+open Tg_arcs;;
+open Tg_split_inv;;
+open Tg_enum_props;;
+open Tg_subdiv_inv;;
+open Tg_xlbthm;;
+open Tg_xdriver_lemmas;;
+open Tg_enum_fast;;
+open Tg_enum_fast2;;
+open Tg_xstats;;
+open Tg_leaf;;
+open Tg_leaf_exec;;
+open Tg_eval_support;;
+open Tg_eval_db;;
+
+(* ------------------------------------------------------------------------- *)
+(* Basic list and numeral unrollings (extending c.hl).                       *)
+(* ------------------------------------------------------------------------- *)
+
+let LENGTH_UNROLL15 = prove
+ (`LENGTH ([]:(A)list) = 0
+   /\ LENGTH [a:A] = 1
+   /\ LENGTH [a:A; b] = 2
+   /\ LENGTH [a:A; b; c] = 3
+   /\ LENGTH [a:A; b; c; d] = 4
+   /\ LENGTH [a:A; b; c; d; e] = 5
+   /\ LENGTH [a:A; b; c; d; e; f] = 6
+   /\ LENGTH [a:A; b; c; d; e; f; g] = 7
+   /\ LENGTH [a:A; b; c; d; e; f; g; h] = 8
+   /\ LENGTH [a:A; b; c; d; e; f; g; h; i] = 9
+   /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j] = 10
+   /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j; k] = 11
+   /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j; k; l] = 12
+   /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j; k; l; m] = 13
+   /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j; k; l; m; n] = 14
+   /\ LENGTH [a:A; b; c; d; e; f; g; h; i; j; k; l; m; n; p] = 15
+   /\ LENGTH (CONS (a:A) (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p (CONS q rest)))))))))))))))) = 16 + LENGTH rest`,
+  REWRITE_TAC[LENGTH] THEN ARITH_TAC);;
+
+let EL_UNROLL15 = prove
+ (`EL 0 (CONS (a:A) xs) = a
+   /\ EL 1 (CONS a (CONS b xs)) = b
+   /\ EL 2 (CONS a (CONS b (CONS c xs))) = c
+   /\ EL 3 (CONS a (CONS b (CONS c (CONS d xs)))) = d
+   /\ EL 4 (CONS a (CONS b (CONS c (CONS d (CONS e xs))))) = e
+   /\ EL 5 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f xs)))))) = f
+   /\ EL 6 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g xs))))))) = g
+   /\ EL 7 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h xs)))))))) = h
+   /\ EL 8 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i xs))))))))) = i
+   /\ EL 9 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j xs)))))))))) = j
+   /\ EL 10 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k xs))))))))))) = k
+   /\ EL 11 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l xs)))))))))))) = l
+   /\ EL 12 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m xs))))))))))))) = m
+   /\ EL 13 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n xs)))))))))))))) = n
+   /\ EL 14 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p xs))))))))))))))) = p
+   /\ EL 15 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p (CONS q xs)))))))))))))))) = q
+   /\ EL nn (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p (CONS q xs)))))))))))))))) =
+       if nn > 15 then EL (nn - 16) xs else EL nn (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p (CONS q xs))))))))))))))))`,
+  REWRITE_TAC[EL_CONS; ARITH] THEN
+  REPEAT (COND_CASES_TAC THEN ASM_REWRITE_TAC[ARITH; ARITH_RULE `n - a - b = n - (a + b)`]) THEN
+  POP_ASSUM MP_TAC THEN POP_ASSUM MP_TAC THEN ARITH_TAC);;
+
+let APPEND_UNROLL8 = prove
+ (`APPEND [] xs = xs
+   /\ APPEND [a:A] xs = CONS a xs
+   /\ APPEND [a; b] xs = CONS a (CONS b xs)
+   /\ APPEND [a; b; c] xs = CONS a (CONS b (CONS c xs))
+   /\ APPEND [a; b; c; d] xs = CONS a (CONS b (CONS c (CONS d xs)))
+   /\ APPEND [a; b; c; d; e] xs = CONS a (CONS b (CONS c (CONS d (CONS e xs))))
+   /\ APPEND [a; b; c; d; e; f] xs = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f xs)))))
+   /\ APPEND [a; b; c; d; e; f; g] xs = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g xs))))))
+   /\ APPEND [a; b; c; d; e; f; g; h] xs = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h xs)))))))
+   /\ APPEND (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i ys))))))))) xs =
+       CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i (APPEND ys xs)))))))))`,
+  REWRITE_TAC[APPEND]);;
+
+let MAP_UNROLL11 = prove
+ (`MAP (f:A->B) [] = []
+   /\ MAP f [a] = [f a]
+   /\ MAP f [a; b] = [f a; f b]
+   /\ MAP f [a; b; c] = [f a; f b; f c]
+   /\ MAP f [a; b; c; d] = [f a; f b; f c; f d]
+   /\ MAP f [a; b; c; d; e] = [f a; f b; f c; f d; f e]
+   /\ MAP f [a; b; c; d; e; g] = [f a; f b; f c; f d; f e; f g]
+   /\ MAP f [a; b; c; d; e; g; h] = [f a; f b; f c; f d; f e; f g; f h]
+   /\ MAP f [a; b; c; d; e; g; h; i] = [f a; f b; f c; f d; f e; f g; f h; f i]
+   /\ MAP f [a; b; c; d; e; g; h; i; j] = [f a; f b; f c; f d; f e; f g; f h; f i; f j]
+   /\ MAP f [a; b; c; d; e; g; h; i; j; k] = [f a; f b; f c; f d; f e; f g; f h; f i; f j; f k]
+   /\ MAP f [a; b; c; d; e; g; h; i; j; k; l] = [f a; f b; f c; f d; f e; f g; f h; f i; f j; f k; f l]
+   /\ MAP f (CONS a (CONS b (CONS c (CONS d (CONS e (CONS g (CONS h (CONS i (CONS j (CONS k (CONS l (CONS m xs)))))))))))) =
+     CONS (f a) (CONS (f b) (CONS (f c) (CONS (f d) (CONS (f e) (CONS (f g) (CONS (f h) (CONS (f i) (CONS (f j) (CONS (f k) (CONS (f l) (CONS (f m) (MAP f xs))))))))))))`,
+  REWRITE_TAC[MAP]);;
+
+let MEM_UNROLL8 = prove
+ (`(MEM (x:A) [] <=> F)
+   /\ (MEM x [a] <=> x = a)
+   /\ (MEM x [a; b] <=> x = a \/ x = b)
+   /\ (MEM x [a; b; c] <=> x = a \/ x = b \/ x = c)
+   /\ (MEM x [a; b; c; d] <=> x = a \/ x = b \/ x = c \/ x = d)
+   /\ (MEM x [a; b; c; d; e] <=> x = a \/ x = b \/ x = c \/ x = d \/ x = e)
+   /\ (MEM x [a; b; c; d; e; f] <=> x = a \/ x = b \/ x = c \/ x = d \/ x = e \/ x = f)
+   /\ (MEM x [a; b; c; d; e; f; g] <=> x = a \/ x = b \/ x = c \/ x = d \/ x = e \/ x = f \/ x = g)
+   /\ (MEM x [a; b; c; d; e; f; g; h] <=> x = a \/ x = b \/ x = c \/ x = d \/ x = e \/ x = f \/ x = g \/ x = h)
+   /\ (MEM x (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS h (CONS i xs))))))))) <=> x = a \/ x = b \/ x = c \/ x = d \/ x = e \/ x = f \/ x = g \/ x = h \/ x = i \/ MEM x xs)`,
+  REWRITE_TAC[MEM]);;
+
+let FILTER_UNROLL2 = prove
+ (`FILTER (p:A->bool) [] = []
+   /\ (FILTER p [a] = if p a then [a] else [])
+   /\ (FILTER p [a; b] = if p a then CONS a (if p b then [b] else []) else (if p b then [b] else []))
+   /\ (FILTER p (CONS a (CONS b xs)) = if p a then CONS a (if p b then CONS b (FILTER p xs) else FILTER p xs) else if p b then CONS b (FILTER p xs) else FILTER p xs)`,
+  REWRITE_TAC[FILTER] THEN MESON_TAC[]);;
+
+let MIN_LIST_UNROLL3 = prove
+ (`MIN_LIST d [] = d
+   /\ MIN_LIST d [a] = MIN a d
+   /\ MIN_LIST d [a; b] = MIN a (MIN b d)
+   /\ MIN_LIST d [a; b; c] = MIN a (MIN b (MIN c d))
+   /\ MIN_LIST d (CONS a (CONS b (CONS c (CONS e xs)))) = MIN a (MIN b (MIN c (MIN e (MIN_LIST d xs))))`,
+  REWRITE_TAC[MIN_LIST]);;
+
+let SOMES_UNROLL1 = prove
+ (`SOMES [] = []
+   /\ SOMES [NONE] = []
+   /\ SOMES [SOME x] = [x]
+   /\ SOMES (CONS NONE xs) = SOMES xs
+   /\ SOMES (CONS (SOME x) xs) = CONS x (SOMES xs)`,
+  REWRITE_TAC[SOMES]);;
+
+let LAST_EXEC = prove
+ (`LAST [h:A] = h /\
+   LAST (CONS h (CONS h' t)) = LAST (CONS h' t)`,
+  REWRITE_TAC[LAST; NOT_CONS_NIL]);;
+
+let REPLICATE_UNROLL5 =
+  let th0 = prove
+   (`REPLICATE 0 (x:A) = [] /\
+     REPLICATE 1 x = [x] /\
+     REPLICATE 2 x = [x; x] /\
+     REPLICATE 3 x = [x; x; x] /\
+     REPLICATE 4 x = [x; x; x; x] /\
+     REPLICATE 5 x = [x; x; x; x; x]`,
+    REWRITE_TAC[ARITH_RULE
+      `1 = SUC 0 /\ 2 = SUC 1 /\ 3 = SUC 2 /\ 4 = SUC 3 /\ 5 = SUC 4`;
+      REPLICATE]) in
+  CONJ th0 REPLICATE_EXEC;;
+
+let FLAT_EXEC = prove
+ (`FLAT ([]:(A list)list) = [] /\
+   FLAT [h:A list] = h /\
+   FLAT (CONS [] (CONS h t)) = FLAT (CONS h t) /\
+   FLAT (CONS h (CONS h' t)) = APPEND h (FLAT (CONS h' t))`,
+  REWRITE_TAC[FLAT; APPEND; APPEND_NIL]);;
+
+let LIST_SUM_UNROLL6 = prove
+ (`LIST_SUM (f:A->num) [] = 0 /\
+   LIST_SUM f [a] = f a /\
+   LIST_SUM f [a; b] = f a + f b /\
+   LIST_SUM f [a; b; c] = f a + f b + f c /\
+   LIST_SUM f [a; b; c; d] = f a + f b + f c + f d /\
+   LIST_SUM f [a; b; c; d; e] = f a + f b + f c + f d + f e /\
+   LIST_SUM f [a; b; c; d; e; g] = f a + f b + f c + f d + f e + f g /\
+   LIST_SUM f (CONS a (CONS b (CONS c (CONS d (CONS e (CONS g (CONS h t))))))) =
+     f a + f b + f c + f d + f e + f g + f h + LIST_SUM f t`,
+  REWRITE_TAC[LIST_SUM; ADD_CLAUSES]);;
+
+let ROTATE_EXEC_2 =
+  let th0 = prove
+   (`(!xs:A list. ROTATE 0 xs = xs) /\
+     ROTATE 1 ([]:A list) = [] /\
+     (!x xs:A list. ROTATE 1 (CONS x xs) = APPEND xs [x])`,
+    REWRITE_TAC[ROTATE_CLAUSES; ROTATE1; ARITH_RULE `1 = SUC 0`]) in
+  CONJ th0 ROTATE_EXEC;;
+
+let REPLACE_EXEC = prove
+ (`REPLACE (x:A) [y] [] = [] /\
+   REPLACE x [y] (CONS z zs) =
+     (if z = x then CONS y zs else CONS z (REPLACE x [y] zs)) /\
+   REPLACE x [y1; y2] [] = [] /\
+   REPLACE x [y1; y2] (CONS z zs) =
+     (if z = x then CONS y1 (CONS y2 zs) else CONS z (REPLACE x [y1; y2] zs)) /\
+   REPLACE x ys [] = [] /\
+   REPLACE x ys (CONS z zs) =
+     (if z = x then APPEND ys zs else CONS z (REPLACE x ys zs))`,
+  REWRITE_TAC[REPLACE; APPEND]);;
+
+let UPDATE_AT_EXEC =
+  let th0 = prove
+   (`(!n h:A->A. UPDATE_AT [] n h = []) /\
+     (!a xs h:A->A. UPDATE_AT (CONS a xs) 0 h = CONS (h a) xs) /\
+     (!a b xs h:A->A. UPDATE_AT (CONS a (CONS b xs)) 1 h = CONS a (CONS (h b) xs)) /\
+     (!a b c xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c xs))) 2 h = CONS a (CONS b (CONS (h c) xs))) /\
+     (!a b c d xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d xs)))) 3 h = CONS a (CONS b (CONS c (CONS (h d) xs)))) /\
+     (!a b c d e xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e xs))))) 4 h = CONS a (CONS b (CONS c (CONS d (CONS (h e) xs))))) /\
+     (!a b c d e f xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f xs)))))) 5 h = CONS a (CONS b (CONS c (CONS d (CONS e (CONS (h f) xs)))))) /\
+     (!a b c d e f g xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g xs))))))) 6 h = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS (h g) xs))))))) /\
+     (!a b c d e f g i xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i xs)))))))) 7 h = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS (h i) xs)))))))) /\
+     (!a b c d e f g i j xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j xs))))))))) 8 h = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS (h j) xs))))))))) /\
+     (!a b c d e f g i j k xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k xs)))))))))) 9 h = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS (h k) xs)))))))))) /\
+     (!a b c d e f g i j k l xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k (CONS l xs))))))))))) 10 h = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k (CONS (h l) xs))))))))))) /\
+     (!a b c d e f g i j k l m xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k (CONS l (CONS m xs)))))))))))) 11 h = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k (CONS l (CONS (h m) xs)))))))))))) /\
+     (!a b c d e f g i j k l m n xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n xs))))))))))))) 12 h = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k (CONS l (CONS m (CONS (h n) xs))))))))))))) /\
+     (!a b c d e f g i j k l m n p xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p xs)))))))))))))) 13 h = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS (h p) xs)))))))))))))) /\
+     (!a b c d e f g i j k l m n p q xs h:A->A. UPDATE_AT (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p (CONS q xs))))))))))))))) 14 h = CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g (CONS i (CONS j (CONS k (CONS l (CONS m (CONS n (CONS p (CONS (h q) xs)))))))))))))))`,
+    REWRITE_TAC[UPDATE_AT; ARITH]) in
+  CONJ th0 (CONJUNCT2 UPDATE_AT);;
+
+let MAP_AT_EXEC_2 = prove
+ (`(!h:A->A xs. MAP_AT [] h xs = xs) /\
+   (!n h:A->A xs. MAP_AT [n] h xs = UPDATE_AT xs n h) /\
+   (!n n' ns h:A->A xs.
+      MAP_AT (CONS n (CONS n' ns)) h xs =
+      MAP_AT (CONS n' ns) h (UPDATE_AT xs n h))`,
+  REWRITE_TAC[MAP_AT_EXEC]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* SPLIT_AT_LIN, BETWEEN, ROTATE_TO without FST/SND/abs.                     *)
+(* ------------------------------------------------------------------------- *)
+
+let PAIR_CONS_FST = define
+ `PAIR_CONS_FST (a:A) (xs, ys:B) = (CONS a xs, ys)`;;
+
+let SPLIT_AT_LIN_EXEC_2 = prove
+ (`SPLIT_AT_LIN (c:A) [] = ([], []) /\
+   SPLIT_AT_LIN c (CONS a rs) =
+     if a = c then ([], rs) else PAIR_CONS_FST a (SPLIT_AT_LIN c rs)`,
+  REWRITE_TAC[SPLIT_AT_LIN_EXEC] THEN REPEAT GEN_TAC THEN
+  COND_CASES_TAC THEN REWRITE_TAC[] THEN
+  STRUCT_CASES_TAC(ISPEC `SPLIT_AT_LIN (c:A) rs` PAIR_SURJECTIVE) THEN
+  REWRITE_TAC[PAIR_CONS_FST; FST; SND]);;
+
+let FST_SPLIT_AT = define
+ `FST_SPLIT_AT (c:A) [] = [] /\
+  FST_SPLIT_AT c (CONS a rs) =
+    if a = c then [] else CONS a (FST_SPLIT_AT c rs)`;;
+
+let FST_SPLIT_AT_EQ = prove
+ (`!c:A l. FST (SPLIT_AT_LIN c l) = FST_SPLIT_AT c l`,
+  GEN_TAC THEN LIST_INDUCT_TAC THEN
+  REWRITE_TAC[SPLIT_AT_LIN_EXEC; FST_SPLIT_AT; FST] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[FST]);;
+
+let BETWEEN_AUX = define
+ `BETWEEN_AUX (pre1:A list, post1) ram2 =
+    if MEM ram2 post1 then FST_SPLIT_AT ram2 post1
+    else APPEND post1 (FST_SPLIT_AT ram2 pre1)`;;
+
+let BETWEEN_EXEC_2 = prove
+ (`BETWEEN (vs:A list) ram1 ram2 =
+    BETWEEN_AUX (SPLIT_AT_LIN ram1 vs) ram2`,
+  REWRITE_TAC[BETWEEN; LET_ELIM_THM; SPLIT_AT_EXEC] THEN
+  STRUCT_CASES_TAC(ISPEC `SPLIT_AT_LIN (ram1:A) vs` PAIR_SURJECTIVE) THEN
+  REWRITE_TAC[BETWEEN_AUX; FST; SND; FST_SPLIT_AT_EQ]);;
+
+let ROTATE_TO_AUX = define
+ `ROTATE_TO_AUX (v:A) (pre, post) = CONS v (APPEND post pre)`;;
+
+let ROTATE_TO_EXEC = prove
+ (`ROTATE_TO (v:A) l = ROTATE_TO_AUX v (SPLIT_AT_LIN v l)`,
+  REWRITE_TAC[ROTATE_TO] THEN
+  STRUCT_CASES_TAC(ISPEC `SPLIT_AT_LIN (v:A) l` PAIR_SURJECTIVE) THEN
+  REWRITE_TAC[ROTATE_TO_AUX; FST; SND; APPEND]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* MINIMAL_EL, MINIMAL_FACE, MINIMAL_VERTEX: tail-recursive, no abs.         *)
+(* ------------------------------------------------------------------------- *)
+
+let MINIMAL_EL_REC = new_recursive_definition list_RECURSION
+ `MINIMAL_EL_REC (m:A->num) best best_val [] = best /\
+  MINIMAL_EL_REC m best best_val (CONS x xs) =
+    if best_val <= m x then MINIMAL_EL_REC m best best_val xs
+    else MINIMAL_EL_REC m x (m x) xs`;;
+
+let MINIMAL_EL_REC_INV = prove
+ (`!xs (m:A->num) best.
+     ~(xs = []) ==>
+     MINIMAL_EL_REC m best (m best) xs =
+       if m best <= m (MINIMAL_EL m xs) then best else MINIMAL_EL m xs`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[NOT_CONS_NIL] THEN
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[MINIMAL_EL_REC] THEN
+  ASM_CASES_TAC `t:A list = []` THENL
+   [ASM_REWRITE_TAC[MINIMAL_EL_REC; MINIMAL_EL; LET_DEF; LET_END_DEF] THEN
+    COND_CASES_TAC THEN REWRITE_TAC[];
+    ONCE_REWRITE_TAC[MINIMAL_EL] THEN
+    ASM_REWRITE_TAC[LET_DEF; LET_END_DEF] THEN
+    ASM_SIMP_TAC[] THEN
+    COND_CASES_TAC THEN COND_CASES_TAC THEN ASM_REWRITE_TAC[] THEN
+    ASM_ARITH_TAC]);;
+
+let MINIMAL_EL_EXEC2 = prove
+ (`MINIMAL_EL (m:A->num) [x] = x /\
+   MINIMAL_EL m (CONS x (CONS y ys)) = MINIMAL_EL_REC m x (m x) (CONS y ys)`,
+  REWRITE_TAC[MINIMAL_EL] THEN
+  SIMP_TAC[MINIMAL_EL_REC_INV; NOT_CONS_NIL] THEN
+  ONCE_REWRITE_TAC[MINIMAL_EL] THEN
+  REWRITE_TAC[NOT_CONS_NIL; LET_DEF; LET_END_DEF]);;
+
+let MINIMAL_FACE_REC = new_recursive_definition list_RECURSION
+ `MINIMAL_FACE_REC best best_len [] = best /\
+  MINIMAL_FACE_REC best best_len (CONS f fs) =
+    if best_len <= LENGTH (VERTICES f) then MINIMAL_FACE_REC best best_len fs
+    else MINIMAL_FACE_REC f (LENGTH (VERTICES f)) fs`;;
+
+let MINIMAL_FACE_REC_EXEC = prove
+ (`MINIMAL_FACE_REC best best_len [] = best /\
+   MINIMAL_FACE_REC best best_len (CONS (FACE vs t) fs) =
+     if best_len <= LENGTH vs then MINIMAL_FACE_REC best best_len fs
+     else MINIMAL_FACE_REC (FACE vs t) (LENGTH vs) fs`,
+  REWRITE_TAC[MINIMAL_FACE_REC; VERTICES]);;
+
+let MINIMAL_FACE_REC_EQ = prove
+ (`!fs best.
+     MINIMAL_FACE_REC best (LENGTH (VERTICES best)) fs =
+     MINIMAL_EL_REC (\f. LENGTH (VERTICES f)) best (LENGTH (VERTICES best)) fs`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[MINIMAL_FACE_REC; MINIMAL_EL_REC] THEN
+  GEN_TAC THEN COND_CASES_TAC THEN ASM_REWRITE_TAC[]);;
+
+let MINIMAL_FACE_EXEC = prove
+ (`MINIMAL_FACE [f] = f /\
+   MINIMAL_FACE (CONS (FACE vs t) (CONS f' fs)) =
+     MINIMAL_FACE_REC (FACE vs t) (LENGTH vs) (CONS f' fs)`,
+  REWRITE_TAC[MINIMAL_FACE; MINIMAL_EL_EXEC2] THEN
+  REWRITE_TAC[GSYM MINIMAL_FACE_REC_EQ; VERTICES]);;
+
+let MINIMAL_VERTEX_REC = new_recursive_definition list_RECURSION
+ `MINIMAL_VERTEX_REC (h:num list) best best_h [] = best /\
+  MINIMAL_VERTEX_REC h best best_h (CONS v vs) =
+    if best_h <= EL v h then MINIMAL_VERTEX_REC h best best_h vs
+    else MINIMAL_VERTEX_REC h v (EL v h) vs`;;
+
+let MINIMAL_VERTEX_REC_EQ = prove
+ (`!vs h best.
+     MINIMAL_VERTEX_REC h best (EL best h) vs =
+     MINIMAL_EL_REC (\v. EL v h) best (EL best h) vs`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[MINIMAL_VERTEX_REC; MINIMAL_EL_REC] THEN
+  GEN_TAC THEN GEN_TAC THEN COND_CASES_TAC THEN ASM_REWRITE_TAC[]);;
+
+let MINIMAL_VERTEX_EXEC = prove
+ (`MINIMAL_VERTEX (GRAPH fs n fl h) (FACE [v] t) = v /\
+   MINIMAL_VERTEX (GRAPH fs n fl h) (FACE (CONS v (CONS w ws)) t) =
+     MINIMAL_VERTEX_REC h v (EL v h) (CONS w ws)`,
+  REWRITE_TAC[MINIMAL_VERTEX; VERTICES; MINIMAL_EL_EXEC2; MINIMAL_VERTEX_REC_EQ] THEN
+  SUBGOAL_THEN `HEIGHT (GRAPH fs n fl h) = \v. EL v h`
+    (fun th -> REWRITE_TAC[th]) THEN
+  REWRITE_TAC[FUN_EQ_THM; HEIGHT; HEIGHTS]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* Graph and face projections/predicates via pattern matching.               *)
+(* ------------------------------------------------------------------------- *)
+
+let NEXT_VERTEX_EXEC2 = prove
+ (`(!h vs t v. NEXT_VERTEX (FACE (CONS h vs) t) v = NEXT_ELEM (CONS h vs) h v) /\
+   (!t v. NEXT_VERTEX (FACE [] t) v = NEXT_ELEM [] (HD []) v)`,
+  REWRITE_TAC[NEXT_VERTEX; VERTICES; LET_DEF; LET_END_DEF; HD]);;
+
+let SET_FINAL_EXEC = prove
+ (`SET_FINAL (FACE vs t) = FACE vs Final`,
+  REWRITE_TAC[SET_FINAL; VERTICES]);;
+
+let TRIANGLE_EXEC2 = prove
+ (`TRIANGLE (FACE vs t) <=> IS_LEN3 vs`,
+  REWRITE_TAC[TRIANGLE_EXEC; VERTICES]);;
+
+let VERTICES_GRAPH_EXEC = prove
+ (`VERTICES_GRAPH (GRAPH fs n fl h) = UPT 0 n`,
+  REWRITE_TAC[VERTICES_GRAPH; COUNT_VERTICES]);;
+
+let FACES_AT_EXEC = prove
+ (`FACES_AT (GRAPH fs n fl h) v = EL v fl`,
+  REWRITE_TAC[FACES_AT; FACE_LIST_AT]);;
+
+let HEIGHT_EXEC = prove
+ (`HEIGHT (GRAPH fs n fl h) v = EL v h`,
+  REWRITE_TAC[HEIGHT; HEIGHTS]);;
+
+let FINALS_EXEC = prove
+ (`FINALS (GRAPH fs n fl h) = FILTER FINAL_FACE fs`,
+  REWRITE_TAC[FINALS; FACES]);;
+
+let FILTER_NON_FINALS = new_recursive_definition list_RECURSION
+ `FILTER_NON_FINALS [] = [] /\
+  FILTER_NON_FINALS (CONS f fs) =
+    if FINAL_FACE f then FILTER_NON_FINALS fs
+    else CONS f (FILTER_NON_FINALS fs)`;;
+
+let FILTER_NON_FINALS_EXEC = prove
+ (`FILTER_NON_FINALS [] = [] /\
+   FILTER_NON_FINALS (CONS (FACE vs Final) fs) = FILTER_NON_FINALS fs /\
+   FILTER_NON_FINALS (CONS (FACE vs Nonfinal) fs) =
+     CONS (FACE vs Nonfinal) (FILTER_NON_FINALS fs)`,
+  REWRITE_TAC[FILTER_NON_FINALS; FINAL_FACE]);;
+
+let FILTER_NON_FINALS_EQ = prove
+ (`!fs. FILTER_NON_FINALS fs = FILTER (\f. ~FINAL_FACE f) fs`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[FILTER_NON_FINALS; FILTER] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[]);;
+
+let NON_FINALS_EXEC = prove
+ (`NON_FINALS (GRAPH fs n fl h) = FILTER_NON_FINALS fs`,
+  REWRITE_TAC[NON_FINALS; FACES; FILTER_NON_FINALS_EQ]);;
+
+let ALL_FINAL_FACE = new_recursive_definition list_RECURSION
+ `ALL_FINAL_FACE [] = T /\
+  ALL_FINAL_FACE (CONS f fs) = (FINAL_FACE f /\ ALL_FINAL_FACE fs)`;;
+
+let ALL_FINAL_FACE_EXEC = prove
+ (`ALL_FINAL_FACE [] = T /\
+   ALL_FINAL_FACE (CONS (FACE vs Nonfinal) fs) = F /\
+   ALL_FINAL_FACE (CONS (FACE vs Final) fs) = ALL_FINAL_FACE fs`,
+  REWRITE_TAC[ALL_FINAL_FACE; FINAL_FACE]);;
+
+let ALL_FINAL_FACE_EQ = prove
+ (`!fs. ALL_FINAL_FACE fs <=> ALL FINAL_FACE fs`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[ALL_FINAL_FACE; ALL]);;
+
+let FINAL_GRAPH_EXEC2 = prove
+ (`FINAL_GRAPH (GRAPH fs n fl h) <=> ALL_FINAL_FACE fs`,
+  REWRITE_TAC[FINAL_GRAPH_ALL; FACES; ALL_FINAL_FACE_EQ]);;
+
+let FINAL_VERTEX_EXEC = prove
+ (`FINAL_VERTEX (GRAPH fs n fl h) v <=> ALL_FINAL_FACE (EL v fl)`,
+  REWRITE_TAC[FINAL_VERTEX; FACES_AT_EXEC; ALL_FINAL_FACE_EQ]);;
+
+let DEGREE_EXEC = prove
+ (`DEGREE (GRAPH fs n fl h) v = LENGTH (EL v fl)`,
+  REWRITE_TAC[DEGREE; FACES_AT_EXEC]);;
+
+let TAME10_EXEC2 = prove
+ (`TAME10 (GRAPH fs n fl h) <=> 13 <= n /\ n <= 15`,
+  REWRITE_TAC[TAME10; COUNT_VERTICES; LET_DEF; LET_END_DEF]);;
+
+let FACE_LIST_LEN_EXEC = prove
+ (`FACE_LIST_LEN (GRAPH fs n fl h) <=> LENGTH fl = n`,
+  REWRITE_TAC[FACE_LIST_LEN; FACE_LIST_AT; COUNT_VERTICES]);;
+
+let FGRAPH_LIST = new_recursive_definition list_RECURSION
+ `FGRAPH_LIST [] = [] /\
+  FGRAPH_LIST (CONS f fs) = CONS (VERTICES f) (FGRAPH_LIST fs)`;;
+
+let FGRAPH_LIST_EXEC = prove
+ (`FGRAPH_LIST [] = [] /\
+   FGRAPH_LIST (CONS (FACE vs t) fs) = CONS vs (FGRAPH_LIST fs)`,
+  REWRITE_TAC[FGRAPH_LIST; VERTICES]);;
+
+let FGRAPH_EXEC = prove
+ (`FGRAPH (GRAPH fs n fl h) = FGRAPH_LIST fs`,
+  REWRITE_TAC[FGRAPH; FACES] THEN
+  SPEC_TAC(`fs:face list`,`fs:face list`) THEN
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[MAP; FGRAPH_LIST]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* Face-list counts and single-pass XSTATS5_ACC.                             *)
+(* ------------------------------------------------------------------------- *)
+
+let COUNT_TRI = new_recursive_definition list_RECURSION
+ `COUNT_TRI [] = 0 /\
+  COUNT_TRI (CONS f fs) =
+    if FINAL_FACE f /\ IS_LEN3 (VERTICES f) then SUC (COUNT_TRI fs)
+    else COUNT_TRI fs`;;
+
+let COUNT_TRI_EXEC = prove
+ (`COUNT_TRI [] = 0 /\
+   COUNT_TRI (CONS (FACE vs Nonfinal) fs) = COUNT_TRI fs /\
+   COUNT_TRI (CONS (FACE [] Final) fs) = COUNT_TRI fs /\
+   COUNT_TRI (CONS (FACE [a] Final) fs) = COUNT_TRI fs /\
+   COUNT_TRI (CONS (FACE [a; b] Final) fs) = COUNT_TRI fs /\
+   COUNT_TRI (CONS (FACE [a; b; c] Final) fs) = SUC (COUNT_TRI fs) /\
+   COUNT_TRI (CONS (FACE (CONS a (CONS b (CONS c (CONS d vs)))) Final) fs) =
+     COUNT_TRI fs`,
+  REWRITE_TAC[COUNT_TRI; FINAL_FACE; VERTICES; IS_LEN3]);;
+
+let COUNT_TRI_EQ = prove
+ (`!fs. COUNT_TRI fs = LENGTH (FILTER (\f. FINAL_FACE f /\ IS_LEN3 (VERTICES f)) fs)`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[COUNT_TRI; FILTER; LENGTH] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[LENGTH]);;
+
+let TRI_EXEC2 = prove
+ (`TRI (GRAPH fs n fl h) v = COUNT_TRI (EL v fl)`,
+  REWRITE_TAC[TRI_EXEC; FACES_AT_EXEC; COUNT_TRI_EQ]);;
+
+let COUNT_QUAD = new_recursive_definition list_RECURSION
+ `COUNT_QUAD [] = 0 /\
+  COUNT_QUAD (CONS f fs) =
+    if FINAL_FACE f /\ IS_LEN4 (VERTICES f) then SUC (COUNT_QUAD fs)
+    else COUNT_QUAD fs`;;
+
+let COUNT_QUAD_EXEC = prove
+ (`COUNT_QUAD [] = 0 /\
+   COUNT_QUAD (CONS (FACE vs Nonfinal) fs) = COUNT_QUAD fs /\
+   COUNT_QUAD (CONS (FACE [] Final) fs) = COUNT_QUAD fs /\
+   COUNT_QUAD (CONS (FACE [a] Final) fs) = COUNT_QUAD fs /\
+   COUNT_QUAD (CONS (FACE [a; b] Final) fs) = COUNT_QUAD fs /\
+   COUNT_QUAD (CONS (FACE [a; b; c] Final) fs) = COUNT_QUAD fs /\
+   COUNT_QUAD (CONS (FACE [a; b; c; d] Final) fs) = SUC (COUNT_QUAD fs) /\
+   COUNT_QUAD (CONS (FACE (CONS a (CONS b (CONS c (CONS d (CONS e vs))))) Final) fs) =
+     COUNT_QUAD fs`,
+  REWRITE_TAC[COUNT_QUAD; FINAL_FACE; VERTICES; IS_LEN4]);;
+
+let COUNT_QUAD_EQ = prove
+ (`!fs. COUNT_QUAD fs = LENGTH (FILTER (\f. FINAL_FACE f /\ IS_LEN4 (VERTICES f)) fs)`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[COUNT_QUAD; FILTER; LENGTH] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[LENGTH]);;
+
+let QUAD_EXEC2 = prove
+ (`QUAD (GRAPH fs n fl h) v = COUNT_QUAD (EL v fl)`,
+  REWRITE_TAC[QUAD_EXEC; FACES_AT_EXEC; COUNT_QUAD_EQ]);;
+
+let COUNT_EXCEPT = new_recursive_definition list_RECURSION
+ `COUNT_EXCEPT [] = 0 /\
+  COUNT_EXCEPT (CONS f fs) =
+    if FINAL_FACE f /\ IS_LEN_GE5 (VERTICES f) then SUC (COUNT_EXCEPT fs)
+    else COUNT_EXCEPT fs`;;
+
+let COUNT_EXCEPT_EXEC = prove
+ (`COUNT_EXCEPT [] = 0 /\
+   COUNT_EXCEPT (CONS (FACE vs Nonfinal) fs) = COUNT_EXCEPT fs /\
+   COUNT_EXCEPT (CONS (FACE [] Final) fs) = COUNT_EXCEPT fs /\
+   COUNT_EXCEPT (CONS (FACE [a] Final) fs) = COUNT_EXCEPT fs /\
+   COUNT_EXCEPT (CONS (FACE [a; b] Final) fs) = COUNT_EXCEPT fs /\
+   COUNT_EXCEPT (CONS (FACE [a; b; c] Final) fs) = COUNT_EXCEPT fs /\
+   COUNT_EXCEPT (CONS (FACE [a; b; c; d] Final) fs) = COUNT_EXCEPT fs /\
+   COUNT_EXCEPT (CONS (FACE (CONS a (CONS b (CONS c (CONS d (CONS e vs))))) Final) fs) =
+     SUC (COUNT_EXCEPT fs)`,
+  REWRITE_TAC[COUNT_EXCEPT; FINAL_FACE; VERTICES; IS_LEN_GE5]);;
+
+let COUNT_EXCEPT_EQ = prove
+ (`!fs. COUNT_EXCEPT fs =
+        LENGTH (FILTER (\f. FINAL_FACE f /\ IS_LEN_GE5 (VERTICES f)) fs)`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[COUNT_EXCEPT; FILTER; LENGTH] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[LENGTH]);;
+
+let EXCEPT_EXEC2 = prove
+ (`EXCEPT (GRAPH fs n fl h) v = COUNT_EXCEPT (EL v fl)`,
+  REWRITE_TAC[EXCEPT_EXEC; FACES_AT_EXEC; COUNT_EXCEPT_EQ]);;
+
+let COUNT_NF = new_recursive_definition list_RECURSION
+ `COUNT_NF [] = 0 /\
+  COUNT_NF (CONS f fs) =
+    if FINAL_FACE f then COUNT_NF fs else SUC (COUNT_NF fs)`;;
+
+let COUNT_NF_EXEC = prove
+ (`COUNT_NF [] = 0 /\
+   COUNT_NF (CONS (FACE vs Final) fs) = COUNT_NF fs /\
+   COUNT_NF (CONS (FACE vs Nonfinal) fs) = SUC (COUNT_NF fs)`,
+  REWRITE_TAC[COUNT_NF; FINAL_FACE]);;
+
+let COUNT_NF_EQ = prove
+ (`!fs. COUNT_NF fs = LENGTH (FILTER (\f. ~FINAL_FACE f) fs)`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[COUNT_NF; FILTER; LENGTH] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[LENGTH]);;
+
+let NF_AT_EXEC = prove
+ (`NF_AT (GRAPH fs n fl h) v = COUNT_NF (EL v fl)`,
+  REWRITE_TAC[NF_AT; FACES_AT_EXEC; COUNT_NF_EQ]);;
+
+let SF_SUM_LIST = new_recursive_definition list_RECURSION
+ `SF_SUM_LIST [] = 0 /\
+  SF_SUM_LIST (CONS f fs) =
+    if FINAL_FACE f then SQF (VERTICES f) + SF_SUM_LIST fs
+    else SF_SUM_LIST fs`;;
+
+let SF_SUM_LIST_EXEC = prove
+ (`SF_SUM_LIST [] = 0 /\
+   SF_SUM_LIST (CONS (FACE vs Nonfinal) fs) = SF_SUM_LIST fs /\
+   SF_SUM_LIST (CONS (FACE [] Final) fs) = 15410 + SF_SUM_LIST fs /\
+   SF_SUM_LIST (CONS (FACE [a] Final) fs) = 15410 + SF_SUM_LIST fs /\
+   SF_SUM_LIST (CONS (FACE [a; b] Final) fs) = 15410 + SF_SUM_LIST fs /\
+   SF_SUM_LIST (CONS (FACE [a; b; c] Final) fs) = SF_SUM_LIST fs /\
+   SF_SUM_LIST (CONS (FACE [a; b; c; d] Final) fs) = 2058 + SF_SUM_LIST fs /\
+   SF_SUM_LIST (CONS (FACE [a; b; c; d; e] Final) fs) = 4819 + SF_SUM_LIST fs /\
+   SF_SUM_LIST (CONS (FACE [a; b; c; d; e; f] Final) fs) = 7120 + SF_SUM_LIST fs /\
+   SF_SUM_LIST (CONS (FACE (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g' vs))))))) Final) fs) =
+     15410 + SF_SUM_LIST fs`,
+  REWRITE_TAC[SF_SUM_LIST; FINAL_FACE; VERTICES; SQF; ADD_CLAUSES]);;
+
+let SF_SUM_LIST_EQ = prove
+ (`!fs. SF_SUM_LIST fs =
+        LIST_SUM (\f. SQUANDER_FACE (LENGTH (VERTICES f))) (FILTER FINAL_FACE fs)`,
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[SF_SUM_LIST; FILTER; LIST_SUM; SQF_SQUANDER_FACE] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[LIST_SUM; SQF_SQUANDER_FACE]);;
+
+let SF_SUM_EXEC = prove
+ (`SF_SUM (GRAPH fs n fl h) v = SF_SUM_LIST (EL v fl)`,
+  REWRITE_TAC[SF_SUM; FACES_AT_EXEC; SF_SUM_LIST_EQ]);;
+
+let FACE_SQUANDER_LOWER_BOUND_EXEC2 = prove
+ (`FACE_SQUANDER_LOWER_BOUND (GRAPH fs n fl h) = SF_SUM_LIST fs`,
+  REWRITE_TAC[FACE_SQUANDER_LOWER_BOUND; FINALS; FACES; SF_SUM_LIST_EQ]);;
+
+let XSTATS5_ACC = new_recursive_definition list_RECURSION
+ `XSTATS5_ACC [] t q e nf s = (t, q, e, nf, s) /\
+  XSTATS5_ACC (CONS f fs) t q e nf s =
+    if FINAL_FACE f then
+      XSTATS5_ACC fs
+        (if LENGTH (VERTICES f) = 3 then SUC t else t)
+        (if LENGTH (VERTICES f) = 4 then SUC q else q)
+        (if 5 <= LENGTH (VERTICES f) then SUC e else e)
+        nf
+        (s + SQUANDER_FACE (LENGTH (VERTICES f)))
+    else XSTATS5_ACC fs t q e (SUC nf) s`;;
+
+let XSTATS5_ACC_SPEC = prove
+ (`!fs t q e nf s.
+     XSTATS5_ACC fs t q e nf s =
+       (t + LENGTH (FILTER (\f. FINAL_FACE f /\ LENGTH (VERTICES f) = 3) fs),
+        q + LENGTH (FILTER (\f. FINAL_FACE f /\ LENGTH (VERTICES f) = 4) fs),
+        e + LENGTH (FILTER (\f. FINAL_FACE f /\ 5 <= LENGTH (VERTICES f)) fs),
+        nf + LENGTH (FILTER (\f. ~FINAL_FACE f) fs),
+        s + LIST_SUM (\f. SQUANDER_FACE (LENGTH (VERTICES f)))
+                     (FILTER FINAL_FACE fs))`,
+  LIST_INDUCT_TAC THENL
+   [REWRITE_TAC[XSTATS5_ACC; FILTER; LENGTH; LIST_SUM; ADD_CLAUSES];
+    REPEAT GEN_TAC THEN
+    ASM_REWRITE_TAC[XSTATS5_ACC; FILTER; LENGTH; LIST_SUM] THEN
+    COND_CASES_TAC THEN ASM_REWRITE_TAC[LENGTH; LIST_SUM] THENL
+     [REPEAT (COND_CASES_TAC THEN ASM_REWRITE_TAC[LENGTH; LIST_SUM]) THEN
+      REWRITE_TAC[PAIR_EQ] THEN ARITH_TAC;
+      REWRITE_TAC[PAIR_EQ] THEN ARITH_TAC]]);;
+
+let XSTATS5_ACC_EXEC = prove
+ (`(XSTATS5_ACC [] t q e nf s = (t, q, e, nf, s)) /\
+   (XSTATS5_ACC (CONS (FACE vs Nonfinal) fs) t q e nf s =
+      XSTATS5_ACC fs t q e (SUC nf) s) /\
+   (XSTATS5_ACC (CONS (FACE [] Final) fs) t q e nf s =
+      XSTATS5_ACC fs t q e nf (s + 15410)) /\
+   (XSTATS5_ACC (CONS (FACE [a] Final) fs) t q e nf s =
+      XSTATS5_ACC fs t q e nf (s + 15410)) /\
+   (XSTATS5_ACC (CONS (FACE [a; b] Final) fs) t q e nf s =
+      XSTATS5_ACC fs t q e nf (s + 15410)) /\
+   (XSTATS5_ACC (CONS (FACE [a; b; c] Final) fs) t q e nf s =
+      XSTATS5_ACC fs (SUC t) q e nf s) /\
+   (XSTATS5_ACC (CONS (FACE [a; b; c; d] Final) fs) t q e nf s =
+      XSTATS5_ACC fs t (SUC q) e nf (s + 2058)) /\
+   (XSTATS5_ACC (CONS (FACE [a; b; c; d; e'] Final) fs) t q e nf s =
+      XSTATS5_ACC fs t q (SUC e) nf (s + 4819)) /\
+   (XSTATS5_ACC (CONS (FACE [a; b; c; d; e'; f'] Final) fs) t q e nf s =
+      XSTATS5_ACC fs t q (SUC e) nf (s + 7120)) /\
+   (XSTATS5_ACC (CONS (FACE (CONS a (CONS b (CONS c (CONS d (CONS e' (CONS f' (CONS g' vs))))))) Final) fs) t q e nf s =
+      XSTATS5_ACC fs t q (SUC e) nf (s + 15410))`,
+  REWRITE_TAC[XSTATS5_ACC; FINAL_FACE; VERTICES; LENGTH; SQUANDER_FACE;
+              SQUANDER_TARGET; ADD_CLAUSES; ARITH] THEN
+  REWRITE_TAC[ARITH_RULE
+    `~(SUC(SUC(SUC(SUC(SUC(SUC(SUC n)))))) = 3) /\
+     ~(SUC(SUC(SUC(SUC(SUC(SUC(SUC n)))))) = 4) /\
+     ~(SUC(SUC(SUC(SUC(SUC(SUC(SUC n)))))) = 5) /\
+     ~(SUC(SUC(SUC(SUC(SUC(SUC(SUC n)))))) = 6) /\
+     5 <= SUC(SUC(SUC(SUC(SUC n))))`]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* NEIGHBORS, IVL_FAST, PV_FAST2, POLY_VLISTS_FAST2.                         *)
+(* ------------------------------------------------------------------------- *)
+
+let NEIGHBORS_LIST = new_recursive_definition list_RECURSION
+ `NEIGHBORS_LIST v [] = [] /\
+  NEIGHBORS_LIST v (CONS f fs) = CONS (NEXT_VERTEX f v) (NEIGHBORS_LIST v fs)`;;
+
+let NEIGHBORS_LIST_EXEC = prove
+ (`NEIGHBORS_LIST v [] = [] /\
+   NEIGHBORS_LIST v [f0] = [NEXT_VERTEX f0 v] /\
+   NEIGHBORS_LIST v [f0; f1] = [NEXT_VERTEX f0 v; NEXT_VERTEX f1 v] /\
+   NEIGHBORS_LIST v [f0; f1; f2] =
+     [NEXT_VERTEX f0 v; NEXT_VERTEX f1 v; NEXT_VERTEX f2 v] /\
+   NEIGHBORS_LIST v (CONS f0 (CONS f1 (CONS f2 (CONS f3 fs)))) =
+     CONS (NEXT_VERTEX f0 v)
+       (CONS (NEXT_VERTEX f1 v)
+         (CONS (NEXT_VERTEX f2 v)
+           (CONS (NEXT_VERTEX f3 v) (NEIGHBORS_LIST v fs))))`,
+  REWRITE_TAC[NEIGHBORS_LIST]);;
+
+let NEIGHBORS_EXEC = prove
+ (`NEIGHBORS (GRAPH fs n fl h) v = NEIGHBORS_LIST v (EL v fl)`,
+  REWRITE_TAC[NEIGHBORS; FACES_AT_EXEC] THEN
+  SPEC_TAC(`EL v (fl:(face list)list)`,`l:face list`) THEN
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[MAP; NEIGHBORS_LIST]);;
+
+let NEIGHBORS_MAP = new_recursive_definition list_RECURSION
+ `NEIGHBORS_MAP g [] = [] /\
+  NEIGHBORS_MAP g (CONS v vs) = CONS (NEIGHBORS g v) (NEIGHBORS_MAP g vs)`;;
+
+let NEIGHBORS_MAP_EXEC = prove
+ (`NEIGHBORS_MAP g [] = [] /\
+   NEIGHBORS_MAP g [v0] = [NEIGHBORS g v0] /\
+   NEIGHBORS_MAP g [v0; v1] = [NEIGHBORS g v0; NEIGHBORS g v1] /\
+   NEIGHBORS_MAP g [v0; v1; v2] =
+     [NEIGHBORS g v0; NEIGHBORS g v1; NEIGHBORS g v2] /\
+   NEIGHBORS_MAP g (CONS v0 (CONS v1 (CONS v2 (CONS v3 vs)))) =
+     CONS (NEIGHBORS g v0)
+       (CONS (NEIGHBORS g v1)
+         (CONS (NEIGHBORS g v2)
+           (CONS (NEIGHBORS g v3) (NEIGHBORS_MAP g vs))))`,
+  REWRITE_TAC[NEIGHBORS_MAP]);;
+
+let NEIGHBORS_MAP_EQ = prove
+ (`!vs g. NEIGHBORS_MAP g vs = MAP (NEIGHBORS g) vs`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[NEIGHBORS_MAP; MAP]);;
+
+let IVL_FAST_REC = new_recursive_definition list_RECURSION
+ `IVL_FAST_REC (rvs:num list) a [] = [] /\
+  IVL_FAST_REC rvs a (CONS k ks) =
+    if a = EL k rvs then CONS NONE (IVL_FAST_REC rvs a ks)
+    else CONS (SOME (EL k rvs)) (IVL_FAST_REC rvs (EL k rvs) ks)`;;
+
+let IVL_FAST_REC_EQ = prove
+ (`!ks rvs a. IVL_FAST_REC rvs a ks = HIDE_DUPS_REC a (MAP (\k. EL k rvs) ks)`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[IVL_FAST_REC; MAP; HIDE_DUPS_REC] THEN
+  REPEAT GEN_TAC THEN COND_CASES_TAC THEN ASM_REWRITE_TAC[]);;
+
+let IVL_FAST_EXEC = prove
+ (`IVL_FAST (rvs:num list) [] = [] /\
+   IVL_FAST rvs (CONS k ks) =
+     CONS (SOME (EL k rvs)) (IVL_FAST_REC rvs (EL k rvs) ks)`,
+  REWRITE_TAC[IVL_FAST; MAP; HIDE_DUPS; IVL_FAST_REC_EQ]);;
+
+let IVL_REC = new_recursive_definition list_RECURSION
+ `IVL_REC f v a [] = [] /\
+  IVL_REC f v a (CONS k ks) =
+    if a = NEXT_VERTICES f k v then CONS NONE (IVL_REC f v a ks)
+    else CONS (SOME (NEXT_VERTICES f k v))
+              (IVL_REC f v (NEXT_VERTICES f k v) ks)`;;
+
+let IVL_REC_EQ = prove
+ (`!ks f v a. IVL_REC f v a ks = HIDE_DUPS_REC a (MAP (\k. NEXT_VERTICES f k v) ks)`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[IVL_REC; MAP; HIDE_DUPS_REC] THEN
+  REPEAT GEN_TAC THEN COND_CASES_TAC THEN ASM_REWRITE_TAC[]);;
+
+let INDEX_TO_VERTEX_LIST_EXEC = prove
+ (`INDEX_TO_VERTEX_LIST f v [] = [] /\
+   INDEX_TO_VERTEX_LIST f v (CONS k ks) =
+     CONS (SOME (NEXT_VERTICES f k v))
+          (IVL_REC f v (NEXT_VERTICES f k v) ks)`,
+  REWRITE_TAC[INDEX_TO_VERTEX_LIST; MAP; HIDE_DUPS; IVL_REC_EQ]);;
+
+let CUE_SND_IDX = define
+ `CUE_SND_IDX (rvs:num list) len (nbrs:(num list)list) v [] = F /\
+  CUE_SND_IDX rvs len nbrs v [w] = F /\
+  CUE_SND_IDX rvs len nbrs v (CONS w (CONS w' ws)) =
+    if v < w /\ w < w' /\ 2 <= w' - w /\ 2 <= len - (w' - w) /\
+       MEM (EL w' rvs) (EL w nbrs)
+    then T
+    else CUE_SND_IDX rvs len nbrs w (CONS w' ws)`;;
+
+let CUE_IDX = define
+ `CUE_IDX (rvs:num list) len (nbrs:(num list)list) [] = F /\
+  CUE_IDX rvs len nbrs [v] = F /\
+  CUE_IDX rvs len nbrs (CONS v (CONS w ws)) =
+    if v < w /\ 2 <= w - v /\ 2 <= len - (w - v) /\
+       MEM (EL w rvs) (EL v nbrs)
+    then T
+    else CUE_SND_IDX rvs len nbrs v (CONS w ws)`;;
+
+let CUE_SND_IDX_EQ = prove
+ (`!l rvs nbrs v.
+     CUE_SND_IDX rvs (LENGTH rvs) nbrs v l <=>
+     CONTAINS_UNACCEPTABLE_EDGE_SND (\i j. DUP_EDGE_IDX rvs nbrs i j) v l`,
+  LIST_INDUCT_TAC THEN
+  REWRITE_TAC[CUE_SND_IDX; CONTAINS_UNACCEPTABLE_EDGE_SND] THEN
+  POP_ASSUM MP_TAC THEN
+  STRUCT_CASES_TAC(ISPEC `t:num list` list_CASES) THEN
+  REWRITE_TAC[CUE_SND_IDX; CONTAINS_UNACCEPTABLE_EDGE_SND] THEN
+  DISCH_THEN(fun th -> REWRITE_TAC[th; DUP_EDGE_IDX]));;
+
+let CUE_IDX_EQ = prove
+ (`!l rvs nbrs.
+     CUE_IDX rvs (LENGTH rvs) nbrs l <=> CONTAINS_DUPLICATE_EDGE_IDX rvs nbrs l`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[CONTAINS_DUPLICATE_EDGE_IDX] THEN
+  STRUCT_CASES_TAC(ISPEC `l:num list` list_CASES) THEN
+  REWRITE_TAC[CUE_IDX; CONTAINS_UNACCEPTABLE_EDGE] THEN
+  STRUCT_CASES_TAC(ISPEC `t:num list` list_CASES) THEN
+  REWRITE_TAC[CUE_IDX; CONTAINS_UNACCEPTABLE_EDGE; CUE_SND_IDX_EQ;
+              DUP_EDGE_IDX]);;
+
+let PV_FAST2_LOOP = new_recursive_definition list_RECURSION
+ `PV_FAST2_LOOP rvs len nbrs [] = [] /\
+  PV_FAST2_LOOP rvs len nbrs (CONS is iss) =
+    if CUE_IDX rvs len nbrs is then PV_FAST2_LOOP rvs len nbrs iss
+    else CONS (IVL_FAST rvs is) (PV_FAST2_LOOP rvs len nbrs iss)`;;
+
+let PV_FAST2_EXEC = prove
+ (`PV_FAST2 rvs nbrs iss = PV_FAST2_LOOP rvs (LENGTH rvs) nbrs iss`,
+  REWRITE_TAC[PV_FAST2] THEN
+  SPEC_TAC(`iss:(num list)list`,`iss:(num list)list`) THEN
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[PV_FAST2_LOOP; FILTER; MAP; CUE_IDX_EQ] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[MAP]);;
+
+let POLY_VLISTS_FAST2_EXEC = prove
+ (`POLY_VLISTS_FAST2 n v (FACE vs t) g =
+     PV_FAST2 (ROTATE_TO v vs)
+              (NEIGHBORS_MAP g (ROTATE_TO v vs))
+              (ENUMERATOR n (LENGTH vs))`,
+  REWRITE_TAC[POLY_VLISTS_FAST2; VERTICES; NEIGHBORS_MAP_EQ]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* Face division and subdivision without let/FST/SND/HD/TL/abs.              *)
+(* ------------------------------------------------------------------------- *)
+
+let MAP_REPLACE1 = new_recursive_definition list_RECURSION
+ `MAP_REPLACE1 (x:A) y [] = [] /\
+  MAP_REPLACE1 x y (CONS zs zss) =
+    CONS (REPLACE x [y] zs) (MAP_REPLACE1 x y zss)`;;
+
+let MAKE_FACE_FINAL_EXEC = prove
+ (`MAKE_FACE_FINAL (FACE vs t) (GRAPH fs n fss h) =
+     GRAPH (REPLACE (FACE vs t) [FACE vs Final] fs)
+           n
+           (MAP_REPLACE1 (FACE vs t) (FACE vs Final) fss)
+           h`,
+  REWRITE_TAC[MAKE_FACE_FINAL; MAKE_FACE_FINAL_LIST; SET_FINAL; VERTICES;
+              FACES; COUNT_VERTICES; FACE_LIST_AT; HEIGHTS] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN
+  SPEC_TAC(`fss:(face list)list`,`fss:(face list)list`) THEN
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[MAP; MAP_REPLACE1; MAKE_FACE_FINAL_LIST; SET_FINAL; VERTICES]);;
+
+let SPLIT_FACE_PAIR_EXEC2 = prove
+ (`(SPLIT_FACE_PAIR (FACE vs t) ram1 ram2 [] =
+     FACE (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])) Nonfinal,
+     FACE (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) Nonfinal) /\
+   (SPLIT_FACE_PAIR (FACE vs t) ram1 ram2 newVs =
+     FACE (APPEND (REVERSE newVs)
+                  (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])))
+          Nonfinal,
+     FACE (APPEND (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) newVs)
+          Nonfinal)`,
+  REWRITE_TAC[SPLIT_FACE_PAIR; VERTICES; LET_DEF; LET_END_DEF;
+              REVERSE; APPEND; APPEND_NIL]);;
+
+let SPLIT_FACE_EXEC2 = prove
+ (`(SPLIT_FACE (GRAPH fs n fss h) ram1 ram2 (FACE vs t) [] =
+     (FACE (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])) Nonfinal,
+      FACE (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) Nonfinal,
+      GRAPH
+        (APPEND
+          (REPLACE (FACE vs t)
+            [FACE (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) Nonfinal]
+            fs)
+          [FACE (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])) Nonfinal])
+        n
+        (UPDATE_AT
+          (UPDATE_AT
+            (MAP_AT (BETWEEN vs ram2 ram1)
+              (REPLACE (FACE vs t)
+                [FACE (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) Nonfinal])
+              (MAP_AT (BETWEEN vs ram1 ram2)
+                (REPLACE (FACE vs t)
+                  [FACE (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])) Nonfinal])
+                fss))
+            ram1
+            (REPLACE (FACE vs t)
+              [FACE (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) Nonfinal;
+               FACE (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])) Nonfinal]))
+          ram2
+          (REPLACE (FACE vs t)
+            [FACE (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])) Nonfinal;
+             FACE (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) Nonfinal]))
+        h)) /\
+   (SPLIT_FACE (GRAPH fs n fss h) ram1 ram2 (FACE vs t) newVs =
+     (FACE (APPEND (REVERSE newVs)
+                   (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])))
+           Nonfinal,
+      FACE (APPEND (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) newVs)
+           Nonfinal,
+      GRAPH
+        (APPEND
+          (REPLACE (FACE vs t)
+            [FACE (APPEND (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) newVs)
+                  Nonfinal]
+            fs)
+          [FACE (APPEND (REVERSE newVs)
+                        (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])))
+                Nonfinal])
+        (n + LENGTH newVs)
+        (APPEND
+          (UPDATE_AT
+            (UPDATE_AT
+              (MAP_AT (BETWEEN vs ram2 ram1)
+                (REPLACE (FACE vs t)
+                  [FACE (APPEND (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) newVs)
+                        Nonfinal])
+                (MAP_AT (BETWEEN vs ram1 ram2)
+                  (REPLACE (FACE vs t)
+                    [FACE (APPEND (REVERSE newVs)
+                                  (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])))
+                          Nonfinal])
+                  fss))
+              ram1
+              (REPLACE (FACE vs t)
+                [FACE (APPEND (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) newVs)
+                      Nonfinal;
+                 FACE (APPEND (REVERSE newVs)
+                              (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])))
+                      Nonfinal]))
+            ram2
+            (REPLACE (FACE vs t)
+              [FACE (APPEND (REVERSE newVs)
+                            (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])))
+                    Nonfinal;
+               FACE (APPEND (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) newVs)
+                    Nonfinal]))
+          (REPLICATE (LENGTH newVs)
+            [FACE (APPEND (REVERSE newVs)
+                          (CONS ram1 (APPEND (BETWEEN vs ram1 ram2) [ram2])))
+                  Nonfinal;
+             FACE (APPEND (CONS ram2 (APPEND (BETWEEN vs ram2 ram1) [ram1])) newVs)
+                  Nonfinal]))
+        (APPEND h (HEIGHTS_NEW_VERTICES (EL ram1 h) (EL ram2 h) (LENGTH newVs)))))`,
+  REWRITE_TAC[SPLIT_FACE; LET_ELIM_THM; SPLIT_FACE_PAIR_EXEC2;
+              FACES; COUNT_VERTICES; FACE_LIST_AT; HEIGHTS; VERTICES;
+              REPLACE_FACES_AT; MAP_AT_EXEC; LENGTH; ADD_CLAUSES;
+              REPLICATE; HEIGHTS_NEW_VERTICES; UPT; SUB_REFL; UPT_REC;
+              MAP; APPEND_NIL; FST; SND]);;
+
+let SUBDIV_AFTER_SPLIT = define
+ `SUBDIV_AFTER_SPLIT vos v (f1:face, f2, g') = SUBDIV_FACE_REC vos g' f2 v 0`;;
+
+let SUBDIV_FACE_REC_EXEC2 = prove
+ (`(!g f u n. SUBDIV_FACE_REC [] g f u n = MAKE_FACE_FINAL f g) /\
+   (!g f u n vos. SUBDIV_FACE_REC (CONS NONE vos) g f u n =
+                  SUBDIV_FACE_REC vos g f u (SUC n)) /\
+   (!g f u v vos.
+      SUBDIV_FACE_REC (CONS (SOME v) vos) g f u 0 =
+        if NEXT_VERTEX f u = v then SUBDIV_FACE_REC vos g f v 0
+        else SUBDIV_AFTER_SPLIT vos v (SPLIT_FACE g u v f [])) /\
+   (!fs m fl h f u n v vos.
+      SUBDIV_FACE_REC (CONS (SOME v) vos) (GRAPH fs m fl h) f u n =
+        if n = 0 /\ NEXT_VERTEX f u = v then
+          SUBDIV_FACE_REC vos (GRAPH fs m fl h) f v 0
+        else
+          SUBDIV_AFTER_SPLIT vos v
+            (SPLIT_FACE (GRAPH fs m fl h) u v f (UPT m (m + n))))`,
+  REPEAT CONJ_TAC THEN REPEAT GEN_TAC THEN
+  REWRITE_TAC[SUBDIV_FACE_REC_CLAUSES; LET_ELIM_THM; SUBDIV_AFTER_SPLIT] THENL
+   [REWRITE_TAC[UPT; ADD_CLAUSES; SUB_REFL; UPT_REC] THEN
+    COND_CASES_TAC THEN REWRITE_TAC[] THEN
+    STRUCT_CASES_TAC(ISPEC `SPLIT_FACE g u v f []` PAIR_SURJECTIVE) THEN
+    STRUCT_CASES_TAC(ISPEC `y:face#graph` PAIR_SURJECTIVE) THEN
+    REWRITE_TAC[SUBDIV_AFTER_SPLIT; FST; SND];
+    REWRITE_TAC[COUNT_VERTICES] THEN
+    STRUCT_CASES_TAC
+      (ISPEC `SPLIT_FACE (GRAPH fs m fl h) u v f (UPT m (m + n))`
+        PAIR_SURJECTIVE) THEN
+    STRUCT_CASES_TAC(ISPEC `y:face#graph` PAIR_SURJECTIVE) THEN
+    REWRITE_TAC[SUBDIV_AFTER_SPLIT; FST; SND] THEN
+    ASM_CASES_TAC `n = 0` THEN ASM_CASES_TAC `NEXT_VERTEX f u = v` THEN
+    ASM_REWRITE_TAC[]]);;
+
+let SUBDIV_FACE_EXEC = prove
+ (`(!g f u vos. SUBDIV_FACE g f (CONS (SOME u) vos) = SUBDIV_FACE_REC vos g f u 0) /\
+   (!g f vos. SUBDIV_FACE g f vos = SUBDIV_FACE_REC (TL vos) g f (THE (HD vos)) 0)`,
+  REWRITE_TAC[SUBDIV_FACE; HD; TL; THE]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* ENUMERATOR, POLY_SIZES, DIRECTED_LENGTH, GENERATE_POLYGON, NEXT_PLANE.    *)
+(* ------------------------------------------------------------------------- *)
+
+let ENUMERATOR_EXEC2 = prove
+ (`ENUMERATOR inner outer =
+     MAP (\is. CONS 0 (APPEND is [outer - 1]))
+         (ITER (inner - 3) (ENUM_APPEND (outer - 2)) (ENUM_BASE (outer - 2)))`,
+  REWRITE_TAC[ENUMERATOR_EXEC; APPEND]);;
+
+let POLY_SIZES_EXEC2 =
+  let th0 = prove
+   (`POLY_SIZES 0 = [3] /\ POLY_SIZES 1 = [3; 4] /\
+     POLY_SIZES 2 = [3; 4; 5] /\ POLY_SIZES 3 = [3; 4; 5; 6]`,
+    REWRITE_TAC[POLY_SIZES; MAX_GON; ARITH] THEN
+    REPEAT (ONCE_REWRITE_TAC[UPT_CLAUSES] THEN SIMP_TAC[ARITH])) in
+  CONJ th0 POLY_SIZES;;
+
+let DIRECTED_LENGTH_EXEC = prove
+ (`DIRECTED_LENGTH (FACE vs t) a b =
+     if a = b then 0 else LENGTH (BETWEEN vs a b) + 1`,
+  REWRITE_TAC[DIRECTED_LENGTH; VERTICES]);;
+
+let GENERATE_POLYGON_EXEC2 = prove
+ (`GENERATE_POLYGON n v (FACE vs t) g =
+     MAP (SUBDIV_FACE g (FACE vs t))
+         (MAP (INDEX_TO_VERTEX_LIST (FACE vs t) v)
+              (FILTER (\is. ~CONTAINS_DUPLICATE_EDGE g (FACE vs t) v is)
+                      (ENUMERATOR n (LENGTH vs))))`,
+  REWRITE_TAC[GENERATE_POLYGON_EXEC; VERTICES]);;
+
+let NEXT_PLANE_LOOP = new_recursive_definition list_RECURSION
+ `NEXT_PLANE_LOOP g f v [] = [] /\
+  NEXT_PLANE_LOOP g f v (CONS i is) =
+    APPEND (GENERATE_POLYGON i v f g) (NEXT_PLANE_LOOP g f v is)`;;
+
+let NEXT_PLANE_LOOP_EXEC = prove
+ (`NEXT_PLANE_LOOP g f v [] = [] /\
+   NEXT_PLANE_LOOP g f v [i] = GENERATE_POLYGON i v f g /\
+   NEXT_PLANE_LOOP g f v (CONS i (CONS i' is)) =
+     APPEND (GENERATE_POLYGON i v f g) (NEXT_PLANE_LOOP g f v (CONS i' is))`,
+  REWRITE_TAC[NEXT_PLANE_LOOP; APPEND_NIL]);;
+
+let NEXT_PLANE_LOOP_EQ = prove
+ (`!is g f v.
+     NEXT_PLANE_LOOP g f v is =
+     FLAT (MAP (\i. GENERATE_POLYGON i v f g) is)`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[NEXT_PLANE_LOOP; MAP; FLAT]);;
+
+let NEXT_PLANE_AUX = define
+ `NEXT_PLANE_AUX p g [] = [] /\
+  NEXT_PLANE_AUX p g (CONS f fs) =
+    NEXT_PLANE_LOOP g (MINIMAL_FACE (CONS f fs))
+                      (MINIMAL_VERTEX g (MINIMAL_FACE (CONS f fs)))
+                      (POLY_SIZES p)`;;
+
+let NEXT_PLANE_EXEC2 = prove
+ (`NEXT_PLANE p g = NEXT_PLANE_AUX p g (NON_FINALS g)`,
+  REWRITE_TAC[NEXT_PLANE; LET_DEF; LET_END_DEF] THEN
+  STRUCT_CASES_TAC(ISPEC `NON_FINALS g` list_CASES) THEN
+  REWRITE_TAC[NEXT_PLANE_AUX; NEXT_PLANE_LOOP_EQ; POLY_SIZES; NOT_CONS_NIL]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* Squander tables, CV0, COMPLETION_VALUE, XEXCESS.                          *)
+(* ------------------------------------------------------------------------- *)
+
+let SQUANDER_VERTEX_EXEC2 =
+  let th0 = prove
+   (`SQUANDER_VERTEX 0 3 = 6177 /\
+     SQUANDER_VERTEX 0 4 = 9696 /\
+     SQUANDER_VERTEX 1 2 = 6557 /\
+     SQUANDER_VERTEX 1 3 = 6176 /\
+     SQUANDER_VERTEX 2 1 = 7967 /\
+     SQUANDER_VERTEX 2 2 = 4116 /\
+     SQUANDER_VERTEX 2 3 = 12846 /\
+     SQUANDER_VERTEX 3 1 = 3106 /\
+     SQUANDER_VERTEX 3 2 = 8165 /\
+     SQUANDER_VERTEX 4 0 = 3466 /\
+     SQUANDER_VERTEX 4 1 = 3655 /\
+     SQUANDER_VERTEX 5 0 = 395 /\
+     SQUANDER_VERTEX 5 1 = 11354 /\
+     SQUANDER_VERTEX 6 0 = 6854 /\
+     SQUANDER_VERTEX 7 0 = 14493`,
+    REWRITE_TAC[SQUANDER_VERTEX_EXEC; ARITH]) in
+  CONJ th0 SQUANDER_VERTEX_EXEC;;
+
+let SQUANDER_FACE_EXEC2 =
+  let th0 = prove
+   (`SQUANDER_FACE 0 = 15410 /\
+     SQUANDER_FACE 1 = 15410 /\
+     SQUANDER_FACE 2 = 15410 /\
+     SQUANDER_FACE 3 = 0 /\
+     SQUANDER_FACE 4 = 2058 /\
+     SQUANDER_FACE 5 = 4819 /\
+     SQUANDER_FACE 6 = 7120 /\
+     SQUANDER_FACE 7 = 15410`,
+    REWRITE_TAC[SQUANDER_FACE; SQUANDER_TARGET; ARITH]) in
+  CONJ th0 (REWRITE_RULE[SQUANDER_TARGET] SQUANDER_FACE);;
+
+let CV0_PAIR_DROP = prove
+ (`!P a b l.
+     SQUANDER_VERTEX a b = 15410 ==>
+     MIN_LIST 15410 (MAP (\p. SQUANDER_VERTEX (FST p) (SND p))
+                         (FILTER P (CONS (a, b) l))) =
+     MIN_LIST 15410 (MAP (\p. SQUANDER_VERTEX (FST p) (SND p)) (FILTER P l))`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[FILTER] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[MAP; MIN_LIST; FST; SND] THEN
+  MP_TAC(SPECL [`15410`;
+    `MAP (\p. SQUANDER_VERTEX (FST p) (SND p)) (FILTER P l)`]
+    MIN_LIST_LE_DEFAULT) THEN
+  ARITH_TAC);;
+
+let CV0_PULL = prove
+ (`!P (f:A->num) l1 x l2.
+     MIN_LIST 15410 (MAP f (FILTER P (APPEND l1 (CONS x l2)))) =
+     MIN (if P x then f x else 15410)
+         (MIN_LIST 15410 (MAP f (FILTER P (APPEND l1 l2))))`,
+  GEN_TAC THEN GEN_TAC THEN LIST_INDUCT_TAC THENL
+   [REWRITE_TAC[APPEND; FILTER] THEN REPEAT GEN_TAC THEN
+    COND_CASES_TAC THEN REWRITE_TAC[MAP; MIN_LIST] THEN
+    MP_TAC(SPECL [`15410`; `MAP (f:A->num) (FILTER P l2)`]
+      MIN_LIST_LE_DEFAULT) THEN
+    ARITH_TAC;
+    REWRITE_TAC[APPEND; FILTER] THEN REPEAT GEN_TAC THEN
+    COND_CASES_TAC THEN ASM_REWRITE_TAC[MAP; MIN_LIST] THEN ARITH_TAC]);;
+
+let CV0_IF_BOUND = prove
+ (`!lo c v r.
+     lo <= v /\ v <= 15410 ==>
+     lo <= r /\ r <= 15410 ==>
+     lo <= (if c then v else r) /\ (if c then v else r) <= 15410`,
+  REPEAT STRIP_TAC THEN COND_CASES_TAC THEN ASM_ARITH_TAC);;
+
+let CV0_MIN_STEP = prove
+ (`!c v r. v <= r /\ r <= 15410 ==>
+           MIN (if c then v else 15410) r = (if c then v else r)`,
+  REPEAT STRIP_TAC THEN COND_CASES_TAC THEN ASM_ARITH_TAC);;
+
+let CV0_LARGE_DROP = prove
+ (`!t q nf p1 q1.
+     p1 + q1 <= 7 /\ 7 < t + q + nf ==>
+     (t <= p1 /\ q <= q1 /\
+      (if nf = 0 then p1 + q1 = t + q else t + q + nf <= p1 + q1) <=> F)`,
+  REPEAT STRIP_TAC THEN COND_CASES_TAC THEN ASM_ARITH_TAC);;
+
+let CV0_ZERO_COND = prove
+ (`!t q p1 q1.
+     (t <= p1 /\ q <= q1 /\ p1 + q1 = t + q) <=> (t = p1 /\ q = q1)`,
+  ARITH_TAC);;
+
+let CV0_DROP_ALL = prove
+ (`!P l.
+     ALL (\p. SQUANDER_VERTEX (FST p) (SND p) = 15410) l ==>
+     MIN_LIST 15410 (MAP (\p. SQUANDER_VERTEX (FST p) (SND p)) (FILTER P l)) = 15410`,
+  GEN_TAC THEN LIST_INDUCT_TAC THEN REWRITE_TAC[ALL; FILTER; MAP; MIN_LIST] THEN
+  STRIP_TAC THEN COND_CASES_TAC THEN ASM_SIMP_TAC[MAP; MIN_LIST] THEN
+  ARITH_TAC);;
+
+let CV0_RAW_EXEC, CV0_LE_15410 =
+  let pull_pairs_conv =
+    let rec split_elem x = function
+      | [] -> failwith "split_elem"
+      | y :: ys ->
+        if x = y then [], ys
+        else let a, b = split_elem x ys in y :: a, b in
+    let rec pull pairs tm =
+      match pairs with
+      | [] ->
+        let flt_tm = rand (rand tm) in
+        let p_tm = rand (rator flt_tm) and l_tm = rand flt_tm in
+        let th_all = EQT_ELIM
+          (REWRITE_CONV[ALL; FST; SND; SQUANDER_VERTEX; SQUANDER_TARGET; ARITH]
+            (mk_comb (`ALL (\p. SQUANDER_VERTEX (FST p) (SND p) = 15410)`, l_tm))) in
+        MP (SPECL [p_tm; l_tm] CV0_DROP_ALL) th_all
+      | p :: ps ->
+        let lst_tm = rand (rand (rand tm)) in
+        let l1, l2 = split_elem p (dest_list lst_tm) in
+        let ty = type_of p in
+        let aty_var = mk_vartype "A" in
+        let app_tm = mk_const ("APPEND", [ty, aty_var]) in
+        let cons_tm = mk_const ("CONS", [ty, aty_var]) in
+        let l1_tm = mk_list (l1, ty) and l2_tm = mk_list (l2, ty) in
+        let rhs1 = list_mk_comb (app_tm, [l1_tm; list_mk_comb (cons_tm, [p; l2_tm])]) in
+        let eq1 = SYM (PURE_REWRITE_CONV[APPEND] rhs1) in
+        let th1 = RAND_CONV (RAND_CONV (RAND_CONV (REWR_CONV eq1))) tm in
+        let th2 = TRANS th1 (REWR_CONV CV0_PULL (rand (concl th1))) in
+        let th3 = CONV_RULE (RAND_CONV (RAND_CONV
+          (RAND_CONV (RAND_CONV (PURE_REWRITE_CONV[APPEND]))))) th2 in
+        TRANS th3 (RAND_CONV (pull ps) (rand (concl th3))) in
+    pull in
+  let rec prove_bound lo tm =
+    if tm = `15410` then
+      ARITH_RULE (mk_conj (mk_binary "<=" (lo, `15410`), `15410 <= 15410`))
+    else
+      let c, v_tm = dest_comb (rator tm) in
+      let cond_tm = rand c and r_tm = rand tm in
+      let th_v = ARITH_RULE
+        (mk_conj (mk_binary "<=" (lo, v_tm), mk_binary "<=" (v_tm, `15410`))) in
+      let th_r = prove_bound lo r_tm in
+      MP (MP (SPECL [lo; cond_tm; v_tm; r_tm] CV0_IF_BOUND) th_v) th_r in
+  let rec fold_min_conv tm =
+    if is_comb tm && fst (strip_comb tm) = `MIN` then
+      let th1 = RAND_CONV fold_min_conv tm in
+      let tm1 = rand (concl th1) in
+      let arg1 = rand (rator tm1) and r_tm = rand tm1 in
+      let c_tm = rand (rator (rator arg1)) and v_tm = rand (rator arg1) in
+      let th_b = prove_bound v_tm r_tm in
+      let th2 = MP (SPECL [c_tm; v_tm; r_tm] CV0_MIN_STEP) th_b in
+      TRANS th1 th2
+    else REFL tm in
+  let sorted_pairs =
+    [`5,0`; `3,1`; `4,0`; `4,1`; `2,2`; `1,3`; `0,3`; `1,2`;
+     `6,0`; `2,1`; `3,2`; `0,4`; `5,1`; `2,3`; `7,0`] in
+  let raw_th = prove
+   (`CV0 t q nf =
+       if t <= 5 /\ q <= 0 /\ (if nf = 0 then 5 = t + q else t + q + nf <= 5) then 395
+       else if t <= 3 /\ q <= 1 /\ (if nf = 0 then 4 = t + q else t + q + nf <= 4) then 3106
+       else if t <= 4 /\ q <= 0 /\ (if nf = 0 then 4 = t + q else t + q + nf <= 4) then 3466
+       else if t <= 4 /\ q <= 1 /\ (if nf = 0 then 5 = t + q else t + q + nf <= 5) then 3655
+       else if t <= 2 /\ q <= 2 /\ (if nf = 0 then 4 = t + q else t + q + nf <= 4) then 4116
+       else if t <= 1 /\ q <= 3 /\ (if nf = 0 then 4 = t + q else t + q + nf <= 4) then 6176
+       else if t <= 0 /\ q <= 3 /\ (if nf = 0 then 3 = t + q else t + q + nf <= 3) then 6177
+       else if t <= 1 /\ q <= 2 /\ (if nf = 0 then 3 = t + q else t + q + nf <= 3) then 6557
+       else if t <= 6 /\ q <= 0 /\ (if nf = 0 then 6 = t + q else t + q + nf <= 6) then 6854
+       else if t <= 2 /\ q <= 1 /\ (if nf = 0 then 3 = t + q else t + q + nf <= 3) then 7967
+       else if t <= 3 /\ q <= 2 /\ (if nf = 0 then 5 = t + q else t + q + nf <= 5) then 8165
+       else if t <= 0 /\ q <= 4 /\ (if nf = 0 then 4 = t + q else t + q + nf <= 4) then 9696
+       else if t <= 5 /\ q <= 1 /\ (if nf = 0 then 6 = t + q else t + q + nf <= 6) then 11354
+       else if t <= 2 /\ q <= 3 /\ (if nf = 0 then 5 = t + q else t + q + nf <= 5) then 12846
+       else if t <= 7 /\ q <= 0 /\ (if nf = 0 then 7 = t + q else t + q + nf <= 7) then 14493
+       else 15410`,
+    REWRITE_TAC[CV0; TYPE_PAIRS_EXEC; SQUANDER_TARGET] THEN
+    REWRITE_TAC[ARITH_RULE
+      `SUC 0 = 1 /\ SUC 1 = 2 /\ SUC 2 = 3 /\ SUC 3 = 4 /\
+       SUC 4 = 5 /\ SUC 5 = 6 /\ SUC 6 = 7`] THEN
+    CONV_TAC (LAND_CONV (pull_pairs_conv sorted_pairs)) THEN
+    REWRITE_TAC[FST; SND; SQUANDER_VERTEX; SQUANDER_TARGET; ARITH] THEN
+    CONV_TAC (LAND_CONV fold_min_conv) THEN REFL_TAC) in
+  let le_th = prove
+   (`!t q nf. CV0 t q nf <= 15410`,
+    REPEAT GEN_TAC THEN REWRITE_TAC[raw_th] THEN
+    ACCEPT_TAC (CONJUNCT2 (prove_bound `0` (rand (concl raw_th))))) in
+  raw_th, le_th;;
+
+let CV0_ZERO_EQ = prove
+ (`!t q. CV0 t q 0 = SQUANDER_VERTEX t q`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[CV0_RAW_EXEC; ARITH; SQUANDER_VERTEX; SQUANDER_TARGET] THEN
+  ASM_CASES_TAC `t <= 7` THENL
+   [ALL_TAC;
+    SUBGOAL_THEN
+      `~(t = 0) /\ ~(t = 1) /\ ~(t = 2) /\ ~(t = 3) /\
+       ~(t = 4) /\ ~(t = 5) /\ ~(t = 6) /\ ~(t = 7) /\
+       ~(t <= 0) /\ ~(t <= 1) /\ ~(t <= 2) /\ ~(t <= 3) /\
+       ~(t <= 4) /\ ~(t <= 5) /\ ~(t <= 6) /\ ~(t <= 7)`
+      (fun th -> REWRITE_TAC[th]) THEN
+    REPEAT CONJ_TAC THEN ASM_ARITH_TAC] THEN
+  ASM_CASES_TAC `q <= 4` THENL
+   [ALL_TAC;
+    SUBGOAL_THEN
+      `~(q = 0) /\ ~(q = 1) /\ ~(q = 2) /\ ~(q = 3) /\ ~(q = 4) /\
+       ~(q <= 0) /\ ~(q <= 1) /\ ~(q <= 2) /\ ~(q <= 3) /\ ~(q <= 4)`
+      (fun th -> REWRITE_TAC[th]) THEN
+    REPEAT CONJ_TAC THEN ASM_ARITH_TAC] THEN
+  MP_TAC(ARITH_RULE
+    `t <= 7 ==> t = 0 \/ t = 1 \/ t = 2 \/ t = 3 \/
+                t = 4 \/ t = 5 \/ t = 6 \/ t = 7`) THEN
+  ASM_REWRITE_TAC[] THEN
+  MP_TAC(ARITH_RULE
+    `q <= 4 ==> q = 0 \/ q = 1 \/ q = 2 \/ q = 3 \/ q = 4`) THEN
+  ASM_REWRITE_TAC[] THEN
+  REPEAT STRIP_TAC THEN ASM_REWRITE_TAC[ARITH]);;
+
+let CV0_EXEC2 = prove
+ (`(!t q. CV0 t q 0 = SQUANDER_VERTEX t q) /\
+   (!t q nf. CV0 t q nf =
+      if 7 < t + q + nf then 15410
+      else if nf = 0 then SQUANDER_VERTEX t q
+      else if t + q + nf <= 5 /\ q = 0 then 395
+      else if t + q + nf <= 4 /\ t <= 3 /\ q <= 1 then 3106
+      else if t + q + nf <= 4 /\ q = 0 then 3466
+      else if t + q + nf <= 5 /\ t <= 4 /\ q <= 1 then 3655
+      else if t + q + nf <= 4 /\ t <= 2 /\ q <= 2 then 4116
+      else if t + q + nf <= 4 /\ t <= 1 /\ q <= 3 then 6176
+      else if t + q + nf <= 3 /\ t = 0 then 6177
+      else if t + q + nf <= 3 /\ t <= 1 /\ q <= 2 then 6557
+      else if t + q + nf <= 6 /\ q = 0 then 6854
+      else if t + q + nf <= 3 /\ t <= 2 /\ q <= 1 then 7967
+      else if t + q + nf <= 5 /\ t <= 3 /\ q <= 2 then 8165
+      else if t + q + nf <= 4 /\ t = 0 then 9696
+      else if t + q + nf <= 6 /\ t <= 5 /\ q <= 1 then 11354
+      else if t + q + nf <= 5 /\ t <= 2 /\ q <= 3 then 12846
+      else if q = 0 then 14493
+      else 15410)`,
+  REWRITE_TAC[CV0_ZERO_EQ] THEN REPEAT GEN_TAC THEN
+  ASM_CASES_TAC `7 < t + q + nf` THENL
+   [ASM_REWRITE_TAC[] THEN
+    GEN_REWRITE_TAC LAND_CONV [CV0_RAW_EXEC] THEN
+    REPEAT (COND_CASES_TAC THENL
+     [POP_ASSUM MP_TAC THEN COND_CASES_TAC THEN ASM_ARITH_TAC;
+      POP_ASSUM(K ALL_TAC)]) THEN
+    REFL_TAC;
+    ALL_TAC] THEN
+  ASM_CASES_TAC `nf = 0` THEN ASM_REWRITE_TAC[CV0_ZERO_EQ] THEN
+  GEN_REWRITE_TAC LAND_CONV [CV0_RAW_EXEC] THEN ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN
+    `(t <= 5 /\ q <= 0 /\ t + q + nf <= 5 <=> t + q + nf <= 5 /\ q = 0) /\
+     (t <= 3 /\ q <= 1 /\ t + q + nf <= 4 <=> t + q + nf <= 4 /\ t <= 3 /\ q <= 1) /\
+     (t <= 4 /\ q <= 0 /\ t + q + nf <= 4 <=> t + q + nf <= 4 /\ q = 0) /\
+     (t <= 4 /\ q <= 1 /\ t + q + nf <= 5 <=> t + q + nf <= 5 /\ t <= 4 /\ q <= 1) /\
+     (t <= 2 /\ q <= 2 /\ t + q + nf <= 4 <=> t + q + nf <= 4 /\ t <= 2 /\ q <= 2) /\
+     (t <= 1 /\ q <= 3 /\ t + q + nf <= 4 <=> t + q + nf <= 4 /\ t <= 1 /\ q <= 3) /\
+     (t <= 0 /\ q <= 3 /\ t + q + nf <= 3 <=> t + q + nf <= 3 /\ t = 0) /\
+     (t <= 1 /\ q <= 2 /\ t + q + nf <= 3 <=> t + q + nf <= 3 /\ t <= 1 /\ q <= 2) /\
+     (t <= 6 /\ q <= 0 /\ t + q + nf <= 6 <=> t + q + nf <= 6 /\ q = 0) /\
+     (t <= 2 /\ q <= 1 /\ t + q + nf <= 3 <=> t + q + nf <= 3 /\ t <= 2 /\ q <= 1) /\
+     (t <= 3 /\ q <= 2 /\ t + q + nf <= 5 <=> t + q + nf <= 5 /\ t <= 3 /\ q <= 2) /\
+     (t <= 0 /\ q <= 4 /\ t + q + nf <= 4 <=> t + q + nf <= 4 /\ t = 0) /\
+     (t <= 5 /\ q <= 1 /\ t + q + nf <= 6 <=> t + q + nf <= 6 /\ t <= 5 /\ q <= 1) /\
+     (t <= 2 /\ q <= 3 /\ t + q + nf <= 5 <=> t + q + nf <= 5 /\ t <= 2 /\ q <= 3) /\
+     (t <= 7 /\ q <= 0 /\ t + q + nf <= 7 <=> q = 0)`
+    (fun th -> REWRITE_TAC[th]) THEN
+  REPEAT CONJ_TAC THEN ASM_ARITH_TAC);;
+
+let COMPLETION_VALUE_EXEC2 =
+  let th_base = COMPLETION_VALUE_EXEC' in
+  prove
+   (`(!t q s. COMPLETION_VALUE t q 0 0 s = SQUANDER_VERTEX t q) /\
+     (!t q nf s. COMPLETION_VALUE t q 0 nf s =
+        if 6 < t + q + nf then CV0 t q nf
+        else if nf = 0 then SQUANDER_VERTEX t q
+        else MIN (CV0 t q nf)
+                 (MIN (if t + q + nf <= 5 then s + 4819 else 15410)
+                      (if q = 0 /\ t <= 5 then 11114 else 15410))) /\
+     (!t q nf s. COMPLETION_VALUE t q 1 nf s =
+        if t + q + nf <= 4 then MIN s 15410
+        else if t + q + nf = 5 /\ q = 0 then MIN (6295 + s) 15410
+        else 15410) /\
+     (!t q e nf s. COMPLETION_VALUE t q e nf s =
+        if e = 0 then
+          if 6 < t + q + nf then CV0 t q nf
+          else if nf = 0 then SQUANDER_VERTEX t q
+          else MIN (CV0 t q nf)
+                   (MIN (if t + q + nf <= 5 then s + 4819 else 15410)
+                        (if q = 0 /\ t <= 5 then 11114 else 15410))
+        else if e = 1 then
+          if t + q + nf <= 4 then MIN s 15410
+          else if t + q + nf = 5 /\ q = 0 then MIN (6295 + s) 15410
+          else 15410
+        else if t + q + e + nf <= 5 then MIN s 15410
+        else 15410)`,
+    SUBGOAL_THEN
+      `(!t q s. COMPLETION_VALUE t q 0 0 s = SQUANDER_VERTEX t q) /\
+       (!t q nf s. COMPLETION_VALUE t q 0 nf s =
+          if 6 < t + q + nf then CV0 t q nf
+          else if nf = 0 then SQUANDER_VERTEX t q
+          else MIN (CV0 t q nf)
+                   (MIN (if t + q + nf <= 5 then s + 4819 else 15410)
+                        (if q = 0 /\ t <= 5 then 11114 else 15410))) /\
+       (!t q nf s. COMPLETION_VALUE t q 1 nf s =
+          if t + q + nf <= 4 then MIN s 15410
+          else if t + q + nf = 5 /\ q = 0 then MIN (6295 + s) 15410
+          else 15410)`
+      (fun th ->
+        REWRITE_TAC[th] THEN REPEAT GEN_TAC THEN
+        ASM_CASES_TAC `e = 0` THEN ASM_REWRITE_TAC[th] THEN
+        ASM_CASES_TAC `e = 1` THEN ASM_REWRITE_TAC[th] THEN
+        ASM_REWRITE_TAC[th_base; SQUANDER_FACE_EXEC2; MIN_LIST; APPEND; ARITH] THEN
+        SUBGOAL_THEN `~(e <= 1) /\ 1 <= e` (fun h -> REWRITE_TAC[h]) THENL
+         [ASM_ARITH_TAC; ALL_TAC] THEN
+        COND_CASES_TAC THEN REWRITE_TAC[APPEND; MIN_LIST; ADD_CLAUSES]) THEN
+    REPEAT CONJ_TAC THEN REPEAT GEN_TAC THENL
+     [REWRITE_TAC[th_base; CV0_ZERO_EQ; MIN_LIST; APPEND; ARITH] THEN
+      MP_TAC(REWRITE_RULE[CV0_ZERO_EQ]
+        (SPECL [`t:num`; `q:num`; `0`] CV0_LE_15410)) THEN
+      ARITH_TAC;
+      MP_TAC(SPECL [`t:num`; `q:num`; `nf:num`] CV0_LE_15410) THEN
+      ASM_CASES_TAC `6 < t + q + nf` THENL
+       [ASM_REWRITE_TAC[th_base; SQUANDER_FACE_EXEC2; ARITH] THEN
+        SUBGOAL_THEN `~(t + q + 0 + nf <= 5) /\ ~(t + q + 0 + nf <= 6)`
+          (fun h -> REWRITE_TAC[h]) THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+        REWRITE_TAC[APPEND; MIN_LIST] THEN ARITH_TAC;
+        ALL_TAC] THEN
+      ASM_CASES_TAC `nf = 0` THENL
+       [ASM_REWRITE_TAC[th_base; CV0_ZERO_EQ; MIN_LIST; APPEND; ARITH] THEN
+        ARITH_TAC;
+        ALL_TAC] THEN
+      ASM_REWRITE_TAC[th_base; SQUANDER_FACE_EXEC2; ARITH] THEN
+      SUBGOAL_THEN `0 < nf` (fun h -> REWRITE_TAC[h]) THENL
+       [ASM_ARITH_TAC; ALL_TAC] THEN
+      SUBGOAL_THEN `t + q + nf <= 6` (fun h -> REWRITE_TAC[h]) THENL
+       [ASM_ARITH_TAC; ALL_TAC] THEN
+      REPEAT COND_CASES_TAC THEN
+      REWRITE_TAC[APPEND; MIN_LIST; ARITH_RULE `6295 + 4819 = 11114`] THEN
+      ASM_ARITH_TAC;
+      REWRITE_TAC[th_base; SQUANDER_FACE_EXEC2; ARITH] THEN
+      ASM_CASES_TAC `t + q + nf <= 4` THENL
+       [ASM_REWRITE_TAC[] THEN
+        SUBGOAL_THEN `t + q + 1 + nf <= 5 /\ t + q + 1 + nf <= 6`
+          (fun h -> REWRITE_TAC[h]) THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+        COND_CASES_TAC THEN REWRITE_TAC[APPEND; MIN_LIST; ADD_CLAUSES] THEN
+        ARITH_TAC;
+        ALL_TAC] THEN
+      ASM_REWRITE_TAC[] THEN
+      SUBGOAL_THEN `~(t + q + 1 + nf <= 5)` (fun h -> REWRITE_TAC[h]) THENL
+       [ASM_ARITH_TAC; ALL_TAC] THEN
+      ASM_CASES_TAC `t + q + nf = 5` THENL
+       [ASM_REWRITE_TAC[ARITH_RULE `t + q + 1 + nf = 6 <=> t + q + nf = 5`;
+                        ARITH_RULE `t + q + 1 + nf <= 6 <=> t + q + nf <= 5`;
+                        ARITH] THEN
+        ASM_CASES_TAC `q = 0` THEN ASM_REWRITE_TAC[APPEND; MIN_LIST] THEN
+        SUBGOAL_THEN `t <= 5` (fun h -> REWRITE_TAC[h; APPEND; MIN_LIST]) THEN
+        ASM_ARITH_TAC;
+        ALL_TAC] THEN
+      ASM_REWRITE_TAC[] THEN
+      SUBGOAL_THEN `~(t + q + 1 + nf <= 6)` (fun h -> REWRITE_TAC[h; APPEND; MIN_LIST]) THEN
+      ASM_ARITH_TAC]);;
+
+let XEXCESS_OF_EXEC2 = prove
+ (`!a b c d e.
+     XEXCESS_OF [a; b; c; d; e] =
+       (if 15410 <= COMPLETION_VALUE a b c d e then 15410
+        else COMPLETION_VALUE a b c d e - e)`,
+  REWRITE_TAC[XEXCESS_OF; EL_LIST5; SQUANDER_TARGET; LET_DEF; LET_END_DEF]);;
+
+let XEXCESS_TUPLE = define
+ `XEXCESS_TUPLE (t:num, q:num, e:num, nf:num, s:num) = XEXCESS_OF [t; q; e; nf; s]`;;
+
+let XEXCESS_EXEC2 = prove
+ (`XEXCESS (GRAPH fs n fl h) v = XEXCESS_TUPLE (XSTATS5_ACC (EL v fl) 0 0 0 0 0)`,
+  REWRITE_TAC[XEXCESS_XSTATS; XSTATS_SPEC; FACES_AT_EXEC;
+              TRI; QUAD; EXCEPT; NF_AT; SF_SUM; XSTATS5_ACC_SPEC; ADD_CLAUSES;
+              XEXCESS_TUPLE]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* Tameness checks, DEGREE_PRUNED, MINFACE_WF, VCOUNT_PRUNED_VL, ISO.        *)
+(* ------------------------------------------------------------------------- *)
+
+let IS_LEN3TO6 = define
+ `IS_LEN3TO6 ([]:A list) = F /\
+  IS_LEN3TO6 [a] = F /\
+  IS_LEN3TO6 [a; b] = F /\
+  IS_LEN3TO6 [a; b; c] = T /\
+  IS_LEN3TO6 [a; b; c; d] = T /\
+  IS_LEN3TO6 [a; b; c; d; e] = T /\
+  IS_LEN3TO6 [a; b; c; d; e; f] = T /\
+  IS_LEN3TO6 (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g t))))))) = F`;;
+
+let IS_LEN3TO6_LENGTH = prove
+ (`!l:A list. IS_LEN3TO6 l <=> 3 <= LENGTH l /\ LENGTH l <= 6`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[IS_LEN3TO6; LENGTH; ARITH] THEN
+  REPLICATE_TAC 6 (SHAPE_STEP_TAC [IS_LEN3TO6; LENGTH; ARITH]) THEN
+  REWRITE_TAC[ARITH_RULE `~(SUC(SUC(SUC(SUC(SUC(SUC(SUC n)))))) <= 6)`]);;
+
+let ALL_TAME9A = new_recursive_definition list_RECURSION
+ `ALL_TAME9A [] = T /\
+  ALL_TAME9A (CONS f fs) = (IS_LEN3TO6 (VERTICES f) /\ ALL_TAME9A fs)`;;
+
+let ALL_TAME9A_EXEC = prove
+ (`ALL_TAME9A [] = T /\
+   ALL_TAME9A (CONS (FACE vs t) fs) = (IS_LEN3TO6 vs /\ ALL_TAME9A fs)`,
+  REWRITE_TAC[ALL_TAME9A; VERTICES]);;
+
+let TAME9A_ALL2 = prove
+ (`TAME9A (GRAPH fs n fl h) <=> ALL_TAME9A fs`,
+  REWRITE_TAC[TAME9A_ALL; FACES] THEN
+  SPEC_TAC(`fs:face list`,`fs:face list`) THEN
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[ALL; ALL_TAME9A; IS_LEN3TO6_LENGTH]);;
+
+let TAME11A_UPT = new_recursive_definition list_RECURSION
+ `TAME11A_UPT (fl:(face list)list) [] = T /\
+  TAME11A_UPT fl (CONS v vs) = (3 <= LENGTH (EL v fl) /\ TAME11A_UPT fl vs)`;;
+
+let TAME11A_ALL2 = prove
+ (`TAME11A (GRAPH fs n fl h) <=> TAME11A_UPT fl (UPT 0 n)`,
+  REWRITE_TAC[TAME11A_ALL; VERTICES_GRAPH; COUNT_VERTICES; DEGREE;
+              FACES_AT_EXEC] THEN
+  SPEC_TAC(`UPT 0 n`,`vs:num list`) THEN
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[ALL; TAME11A_UPT]);;
+
+let TAME11B_UPT = new_recursive_definition list_RECURSION
+ `TAME11B_UPT fl [] = T /\
+  TAME11B_UPT fl (CONS v vs) =
+    (LENGTH (EL v fl) <= (if COUNT_EXCEPT (EL v fl) = 0 then 7 else 6) /\
+     TAME11B_UPT fl vs)`;;
+
+let TAME11B_ALL2 = prove
+ (`TAME11B (GRAPH fs n fl h) <=> TAME11B_UPT fl (UPT 0 n)`,
+  REWRITE_TAC[TAME11B_ALL; VERTICES_GRAPH; COUNT_VERTICES; DEGREE;
+              FACES_AT_EXEC; EXCEPT_EXEC2] THEN
+  SPEC_TAC(`UPT 0 n`,`vs:num list`) THEN
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[ALL; TAME11B_UPT]);;
+
+let TAME12O_CHECK = define
+ `TAME12O_CHECK (t:num, q:num, e:num, nf:num, s:num) <=>
+    e = 0 \/ t = 5 /\ q = 0 /\ e = 1`;;
+
+let TAME12O_UPT = new_recursive_definition list_RECURSION
+ `TAME12O_UPT fl [] = T /\
+  TAME12O_UPT fl (CONS v vs) =
+    ((~(LENGTH (EL v fl) = 6) \/ TAME12O_CHECK (XSTATS5_ACC (EL v fl) 0 0 0 0 0)) /\
+     TAME12O_UPT fl vs)`;;
+
+let TAME12O_ALL2 = prove
+ (`TAME12O (GRAPH fs n fl h) <=> TAME12O_UPT fl (UPT 0 n)`,
+  REWRITE_TAC[TAME12O_ALL; VERTICES_GRAPH; COUNT_VERTICES; DEGREE;
+              FACES_AT_EXEC; TRI; QUAD; EXCEPT] THEN
+  SPEC_TAC(`UPT 0 n`,`vs:num list`) THEN
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[ALL; TAME12O_UPT; XSTATS5_ACC_SPEC; ADD_CLAUSES;
+                  TAME12O_CHECK] THEN
+  MESON_TAC[]);;
+
+let DEGREE_PRUNED_EXEC = prove
+ (`DEGREE_PRUNED (GRAPH fs n fl h) v <=>
+     v < n /\
+     (7 < LENGTH (EL v fl) \/
+      6 < LENGTH (EL v fl) /\ ~(COUNT_EXCEPT (EL v fl) = 0))`,
+  REWRITE_TAC[DEGREE_PRUNED; COUNT_VERTICES; DEGREE; FACES_AT_EXEC;
+              EXCEPT_EXEC2]);;
+
+let ALL_LT = new_recursive_definition list_RECURSION
+ `ALL_LT n [] = T /\
+  ALL_LT n (CONS x xs) = (x < n /\ ALL_LT n xs)`;;
+
+let ALL_LT_EQ = prove
+ (`!xs n. ALL_LT n xs <=> ALL (\x. x < n) xs`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[ALL_LT; ALL]);;
+
+let MINFACE_WF_EXEC = prove
+ (`MINFACE_WF (GRAPH fs n fl h) (FACE vs t) <=>
+     DISTINCT vs /\ 3 <= LENGTH vs /\ ALL_LT n vs`,
+  REWRITE_TAC[MINFACE_WF; VERTICES; COUNT_VERTICES; ALL_LT_EQ]);;
+
+let VCOUNT_PRUNED_VL_EXEC2 = prove
+ (`(!fs n fl h vo vos.
+      VCOUNT_PRUNED_VL (GRAPH fs n fl h) (CONS vo vos) <=>
+      15 < n + NEW_VERTS 0 vos) /\
+   (!g vos. VCOUNT_PRUNED_VL g vos <=>
+      15 < COUNT_VERTICES g + NEW_VERTS 0 (TL vos))`,
+  REWRITE_TAC[VCOUNT_PRUNED_VL; COUNT_VERTICES; TL]);;
+
+let FACE_MATCH_EXEC = prove
+ (`FACE_MATCH (phi:num list) (fs2:((num)list)list) (f:num list) (j:num, r:num) <=>
+     j < LENGTH fs2 /\ ROTATE r (MAP (\v. EL v phi) f) = EL j fs2`,
+  REWRITE_TAC[FACE_MATCH] THEN
+  SUBGOAL_THEN `APPLY_MAP (phi:num list) = \v. EL v phi`
+    (fun th -> REWRITE_TAC[th]) THEN
+  REWRITE_TAC[FUN_EQ_THM; APPLY_MAP]);;
+
+let FACE_MATCH_BACK_EXEC = prove
+ (`FACE_MATCH_BACK (phi:num list) (fs1:((num)list)list) (f2:num list) (i:num, r:num) <=>
+     i < LENGTH fs1 /\ ROTATE r (MAP (\v. EL v phi) (EL i fs1)) = f2`,
+  REWRITE_TAC[FACE_MATCH_BACK] THEN
+  SUBGOAL_THEN `APPLY_MAP (phi:num list) = \v. EL v phi`
+    (fun th -> REWRITE_TAC[th]) THEN
+  REWRITE_TAC[FUN_EQ_THM; APPLY_MAP]);;
+
+let ALL_ALL_LT = new_recursive_definition list_RECURSION
+ `ALL_ALL_LT n [] = T /\
+  ALL_ALL_LT n (CONS xs xss) = (ALL_LT n xs /\ ALL_ALL_LT n xss)`;;
+
+let ALL_ALL_LT_EQ = prove
+ (`!xss n. ALL_ALL_LT n xss <=> ALL (ALL (\v. v < n)) xss`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[ALL_ALL_LT; ALL; ALL_LT_EQ]);;
+
+let ISO_CERT_OK_AUX = define
+ `ISO_CERT_OK_AUX fs1 fs2' phi m1 m2 <=>
+    ALL_ALL_LT (LENGTH phi) fs1 /\ DISTINCT phi /\
+    LENGTH m1 = LENGTH fs1 /\ ALL2 (FACE_MATCH phi fs2') fs1 m1 /\
+    LENGTH m2 = LENGTH fs2' /\ ALL2 (FACE_MATCH_BACK phi fs1) fs2' m2`;;
+
+let ISO_CERT_OK_EXEC2 = prove
+ (`ISO_CERT_OK (fs1:((num)list)list) (fs2:((num)list)list)
+               (phi:num list, T, m1:(num#num)list, m2:(num#num)list) =
+     ISO_CERT_OK_AUX fs1 (MAP REVERSE fs2) phi m1 m2 /\
+   ISO_CERT_OK fs1 fs2 (phi, F, m1, m2) =
+     ISO_CERT_OK_AUX fs1 fs2 phi m1 m2`,
+  REWRITE_TAC[ISO_CERT_OK; LET_DEF; LET_END_DEF; ISO_CERT_OK_AUX;
+              ALL_ALL_LT_EQ]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* Stronger lower bound: XSEPARATED, XLB_CERT_OK, XLB_S, XLB_PRUNED, XSIZE.  *)
+(* ------------------------------------------------------------------------- *)
+
+let XSEP_LIST = new_recursive_definition list_RECURSION
+ `XSEP_LIST u [] = T /\
+  XSEP_LIST u (CONS f fs) =
+    ((4 < LENGTH (VERTICES f) /\ FINAL_FACE f \/ ~MEM u (VERTICES f)) /\
+     XSEP_LIST u fs)`;;
+
+let XSEP_LIST_EXEC = prove
+ (`XSEP_LIST u [] = T /\
+   XSEP_LIST u (CONS (FACE vs Nonfinal) fs) = (~MEM u vs /\ XSEP_LIST u fs) /\
+   XSEP_LIST u (CONS (FACE vs Final) fs) =
+     ((IS_LEN_GE5 vs \/ ~MEM u vs) /\ XSEP_LIST u fs)`,
+  REWRITE_TAC[XSEP_LIST; FINAL_FACE; VERTICES; IS_LEN_GE5_LENGTH;
+              ARITH_RULE `4 < n <=> 5 <= n`]);;
+
+let XSEPARATED_PAIR_EXEC = prove
+ (`XSEPARATED_PAIR (GRAPH fs n fl h) u v <=> XSEP_LIST u (EL v fl)`,
+  REWRITE_TAC[XSEPARATED_PAIR; FACES_AT_EXEC] THEN
+  SPEC_TAC(`EL v (fl:(face list)list)`,`l:face list`) THEN
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[ALL; XSEP_LIST]);;
+
+let XSEP_ALL = new_recursive_definition list_RECURSION
+ `XSEP_ALL fl v fl_v [] = T /\
+  XSEP_ALL fl v fl_v (CONS u us) =
+    (XSEP_LIST u fl_v /\ XSEP_LIST v (EL u fl) /\ XSEP_ALL fl v fl_v us)`;;
+
+let XSEP_ALL_EQ = prove
+ (`!us fl v.
+     XSEP_ALL fl v (EL v fl) us <=>
+     ALL (\u. XSEP_LIST u (EL v fl) /\ XSEP_LIST v (EL u fl)) us`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[XSEP_ALL; ALL; CONJ_ASSOC]);;
+
+let XSEPARATED_LIST_EXEC = prove
+ (`XSEPARATED_LIST (GRAPH fs n fl h) [] = T /\
+   XSEPARATED_LIST (GRAPH fs n fl h) (CONS v vs) =
+     (XSEP_ALL fl v (EL v fl) vs /\ XSEPARATED_LIST (GRAPH fs n fl h) vs)`,
+  REWRITE_TAC[XSEPARATED_LIST; XSEPARATED_PAIR_EXEC; XSEP_ALL_EQ]);;
+
+let XLB_CERT_OK_EXEC = prove
+ (`XLB_CERT_OK (GRAPH fs n fl h) cs <=>
+     DISTINCT cs /\ ALL_LT n cs /\ XSEPARATED_LIST (GRAPH fs n fl h) cs`,
+  REWRITE_TAC[XLB_CERT_OK; COUNT_VERTICES; ALL_LT_EQ]);;
+
+let LIST_SUM_XEXCESS = new_recursive_definition list_RECURSION
+ `LIST_SUM_XEXCESS fl [] = 0 /\
+  LIST_SUM_XEXCESS fl (CONS v vs) =
+    XEXCESS_TUPLE (XSTATS5_ACC (EL v fl) 0 0 0 0 0) + LIST_SUM_XEXCESS fl vs`;;
+
+let LIST_SUM_XEXCESS_EXEC = prove
+ (`LIST_SUM_XEXCESS fl [] = 0 /\
+   LIST_SUM_XEXCESS fl [v] = XEXCESS_TUPLE (XSTATS5_ACC (EL v fl) 0 0 0 0 0) /\
+   LIST_SUM_XEXCESS fl (CONS v (CONS v' vs)) =
+     XEXCESS_TUPLE (XSTATS5_ACC (EL v fl) 0 0 0 0 0) +
+     LIST_SUM_XEXCESS fl (CONS v' vs)`,
+  REWRITE_TAC[LIST_SUM_XEXCESS; ADD_CLAUSES]);;
+
+let XLB_S_EXEC = prove
+ (`XLB_S (GRAPH fs n fl h) cs = SF_SUM_LIST fs + LIST_SUM_XEXCESS fl cs`,
+  REWRITE_TAC[XLB_S; FACE_SQUANDER_LOWER_BOUND_EXEC2] THEN AP_TERM_TAC THEN
+  SPEC_TAC(`cs:num list`,`cs:num list`) THEN
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[LIST_SUM; LIST_SUM_XEXCESS; XEXCESS_EXEC2]);;
+
+let XLB_PRUNED_EXEC2 = prove
+ (`XLB_PRUNED g cs <=> 15410 <= XLB_S g cs`,
+  REWRITE_TAC[XLB_PRUNED; SQUANDER_TARGET]);;
+
+let ALL_NOT_MEM = new_recursive_definition list_RECURSION
+ `ALL_NOT_MEM (vs:A list) [] = T /\
+  ALL_NOT_MEM vs (CONS v vs') = (~MEM v vs /\ ALL_NOT_MEM vs vs')`;;
+
+let ALL_NOT_MEM_EQ = prove
+ (`!cs vs:A list. ALL_NOT_MEM vs cs <=> ALL (\v. ~MEM v vs) cs`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[ALL_NOT_MEM; ALL]);;
+
+let XSIZE_PRUNED_EXEC2 = prove
+ (`XSIZE_PRUNED g cs (FACE vs t) i <=>
+     15410 <= XLB_S g cs + SQUANDER_FACE i /\ ALL_NOT_MEM vs cs`,
+  REWRITE_TAC[XSIZE_PRUNED; SQUANDER_TARGET; VERTICES; ALL_NOT_MEM_EQ] THEN
+  MATCH_ACCEPT_TAC CONJ_SYM);;
+
+let XSIZE_PRUNED_S_EXEC2 = prove
+ (`XSIZE_PRUNED_S (g:graph) cs (FACE vs t) i s <=>
+     15410 <= s + SQUANDER_FACE i /\ ALL_NOT_MEM vs cs`,
+  REWRITE_TAC[XSIZE_PRUNED_S; SQUANDER_TARGET; VERTICES; ALL_NOT_MEM_EQ] THEN
+  MATCH_ACCEPT_TAC CONJ_SYM);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* Leaf check (XLB_LEAF_S / XLB_LEAF_A): fused, no FST/SND/HD/TL/abs.        *)
+(* ------------------------------------------------------------------------- *)
+
+let NEW_COUNT_EXEC = prove
+ (`NEW_COUNT [] = 0 /\
+   NEW_COUNT (CONS NONE vl) = SUC (NEW_COUNT vl) /\
+   NEW_COUNT (CONS (SOME (x:num)) vl) = NEW_COUNT vl`,
+  SUBGOAL_THEN `!vl:(num option)list. LENGTH (SOMES vl) <= LENGTH vl`
+    ASSUME_TAC THENL
+   [LIST_INDUCT_TAC THEN REWRITE_TAC[SOMES; LENGTH; LE_REFL] THEN
+    STRUCT_CASES_TAC(ISPEC `h:num option` (cases "option")) THEN
+    ASM_REWRITE_TAC[SOMES; LENGTH] THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  REWRITE_TAC[NEW_COUNT; SOMES; LENGTH] THEN REPEAT CONJ_TAC THEN
+  REPEAT GEN_TAC THEN
+  FIRST_X_ASSUM(MP_TAC o SPEC `vl:(num option)list`) THEN ARITH_TAC);;
+
+let ARCS_REC_EXEC = prove
+ (`ARCS_REC (a:num) (k:num) (base:num) [] = [] /\
+   ARCS_REC a k base (CONS NONE vos) = ARCS_REC a (SUC k) base vos /\
+   ARCS_REC a 0 base (CONS (SOME b) vos) =
+     CONS (a, 0, b, base) (ARCS_REC b 0 base vos) /\
+   ARCS_REC a k base (CONS (SOME b) vos) =
+     CONS (a, k, b, base) (ARCS_REC b 0 (base + k) vos)`,
+  REWRITE_TAC[ARCS_REC; ADD1; ADD_CLAUSES]);;
+
+let ARCS_EXEC = prove
+ (`(!n a vos. ARCS n (CONS (SOME a) vos) = ARCS_REC a 0 n vos) /\
+   (!n vl. ARCS n vl = ARCS_REC (THE (HD vl)) 0 n (TL vl))`,
+  REWRITE_TAC[ARCS; HD; TL; THE]);;
+
+let TRIVIAL_ARC_EXEC = prove
+ (`(TRIVIAL_ARC f (a, 0, b, base) <=> NEXT_VERTEX f a = b) /\
+   (TRIVIAL_ARC f (a, k, b, base) <=> k = 0 /\ NEXT_VERTEX f a = b)`,
+  REWRITE_TAC[TRIVIAL_ARC; ARC_K; ARC_A; ARC_B; FST; SND]);;
+
+let PIECE_ARCS_REC = new_recursive_definition list_RECURSION
+ `PIECE_ARCS_REC f a k base [] = [] /\
+  PIECE_ARCS_REC f a k base (CONS vo vos) =
+    match vo with
+      NONE -> PIECE_ARCS_REC f a (SUC k) base vos
+    | SOME b ->
+        if k = 0 /\ NEXT_VERTEX f a = b then
+          PIECE_ARCS_REC f b 0 base vos
+        else
+          CONS (a, k, b, base) (PIECE_ARCS_REC f b 0 (base + k) vos)`;;
+
+let PIECE_ARCS_REC_EXEC = prove
+ (`PIECE_ARCS_REC f a k base [] = [] /\
+   PIECE_ARCS_REC f a k base (CONS NONE vos) =
+     PIECE_ARCS_REC f a (SUC k) base vos /\
+   PIECE_ARCS_REC f a 0 base (CONS (SOME b) vos) =
+     (if NEXT_VERTEX f a = b then PIECE_ARCS_REC f b 0 base vos
+      else CONS (a, 0, b, base) (PIECE_ARCS_REC f b 0 base vos)) /\
+   PIECE_ARCS_REC f a k base (CONS (SOME b) vos) =
+     (if k = 0 /\ NEXT_VERTEX f a = b then PIECE_ARCS_REC f b 0 base vos
+      else CONS (a, k, b, base) (PIECE_ARCS_REC f b 0 (base + k) vos))`,
+  REWRITE_TAC[PIECE_ARCS_REC] THEN
+  CONV_TAC(TOP_DEPTH_CONV MATCH_CONV) THEN
+  REWRITE_TAC[ADD_CLAUSES]);;
+
+let PIECE_ARCS_REC_EQ = prove
+ (`!vos f a k base.
+     PIECE_ARCS_REC f a k base vos =
+     FILTER (\ac. ~TRIVIAL_ARC f ac) (ARCS_REC a k base vos)`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[PIECE_ARCS_REC_EXEC; ARCS_REC; FILTER] THEN
+  REPEAT GEN_TAC THEN
+  STRUCT_CASES_TAC(ISPEC `h:num option` (cases "option")) THEN
+  ASM_REWRITE_TAC[PIECE_ARCS_REC_EXEC; ARCS_REC; FILTER; TRIVIAL_ARC_EXEC;
+                  ADD1] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[ADD_CLAUSES]);;
+
+let PIECE_ARCS_EXEC = prove
+ (`(!f n a vos. PIECE_ARCS f n (CONS (SOME a) vos) =
+      PIECE_ARCS_REC f a 0 n vos) /\
+   (!f n vl. PIECE_ARCS f n vl =
+      FILTER (\ac. ~TRIVIAL_ARC f ac) (ARCS n vl))`,
+  REWRITE_TAC[PIECE_ARCS; ARCS_EXEC; PIECE_ARCS_REC_EQ]);;
+
+let ARC_VERTS_EXEC = prove
+ (`(ARC_VERTS (FACE vs t) (a, 0, b, base) =
+     CONS a (APPEND (BETWEEN vs a b) [b])) /\
+   (ARC_VERTS (FACE vs t) (a, k, b, base) =
+     CONS a (APPEND (BETWEEN vs a b) (CONS b (UPT base (base + k)))))`,
+  REWRITE_TAC[ARC_VERTS; VERTICES; ARC_A; ARC_B; ARC_K; ARC_BASE;
+              FST; SND; APPEND; ADD_CLAUSES; UPT; SUB_REFL; UPT_REC]);;
+
+let MEM_ARC_VERTS2 = define
+ `MEM_ARC_VERTS2 vs u (a, k, b, base) <=>
+    u = a \/ u = b \/ (base <= u /\ u < base + k) \/ MEM u (BETWEEN vs a b)`;;
+
+let MEM_ARC_VERTS2_EXEC = prove
+ (`(MEM_ARC_VERTS2 vs u (a, 0, b, base) <=>
+     u = a \/ u = b \/ MEM u (BETWEEN vs a b)) /\
+   (MEM_ARC_VERTS2 vs u (a, k, b, base) <=>
+     u = a \/ u = b \/ (base <= u /\ u < base + k) \/ MEM u (BETWEEN vs a b))`,
+  REWRITE_TAC[MEM_ARC_VERTS2; ADD_CLAUSES; ARITH_RULE `~(base <= u /\ u < base)`]);;
+
+let MEM_ARC_VERTS2_EQ = prove
+ (`!f u ac. MEM u (ARC_VERTS f ac) <=> MEM_ARC_VERTS2 (VERTICES f) u ac`,
+  GEN_TAC THEN GEN_TAC THEN GEN_TAC THEN
+  STRUCT_CASES_TAC(ISPEC `ac:num#num#num#num` PAIR_SURJECTIVE) THEN
+  STRUCT_CASES_TAC(ISPEC `y:num#num#num` PAIR_SURJECTIVE) THEN
+  STRUCT_CASES_TAC(ISPEC `y':num#num` PAIR_SURJECTIVE) THEN
+  REWRITE_TAC[ARC_VERTS; MEM_ARC_VERTS2; ARC_A; ARC_B; ARC_K; ARC_BASE;
+              FST; SND; MEM; MEM_APPEND; MEM_UPT] THEN
+  CONV_TAC TAUT);;
+
+let PIECES_AT_A_EXEC = prove
+ (`PIECES_AT_A [] u = 0 /\
+   PIECES_AT_A (CONS (a, k, b, base) arcs) u =
+     if u = a \/ u = b then SUC (PIECES_AT_A arcs u)
+     else PIECES_AT_A arcs u`,
+  REWRITE_TAC[PIECES_AT_A; FILTER; LENGTH; ARC_A; ARC_B; FST; SND] THEN
+  REPEAT GEN_TAC THEN COND_CASES_TAC THEN REWRITE_TAC[LENGTH]);;
+
+let PIECES_AT_EXEC = prove
+ (`PIECES_AT f n vl u = PIECES_AT_A (PIECE_ARCS f n vl) u`,
+  REWRITE_TAC[PIECES_AT; PIECES_AT_A]);;
+
+let XCOUNTS_NEW_V = new_definition
+ `XCOUNTS_NEW_V i =
+    [if i = 3 then 1 else 0; if i = 4 then 1 else 0;
+     if 5 <= i then 1 else 0; 1; SQUANDER_FACE i]`;;
+
+let XCOUNTS_NEW_V_EXEC = prove
+ (`XCOUNTS_NEW_V 3 = [1; 0; 0; 1; 0] /\
+   XCOUNTS_NEW_V 4 = [0; 1; 0; 1; 2058] /\
+   XCOUNTS_NEW_V 5 = [0; 0; 1; 1; 4819] /\
+   XCOUNTS_NEW_V 6 = [0; 0; 1; 1; 7120] /\
+   XCOUNTS_NEW_V i =
+     [if i = 3 then 1 else 0; if i = 4 then 1 else 0;
+      if 5 <= i then 1 else 0; 1; SQUANDER_FACE i]`,
+  REWRITE_TAC[XCOUNTS_NEW_V; SQUANDER_FACE; SQUANDER_TARGET; ARITH]);;
+
+let XCOUNTS_AFTER_ADD = define
+ `XCOUNTS_AFTER_ADD i pi (t, q, e, nf, s) =
+    [t + (if i = 3 then 1 else 0);
+     q + (if i = 4 then 1 else 0);
+     e + (if 5 <= i then 1 else 0);
+     nf - 1 + pi;
+     s + SQUANDER_FACE i]`;;
+
+let XCOUNTS_AFTER_ADD_EXEC = prove
+ (`XCOUNTS_AFTER_ADD 3 pi (t, q, e, nf, s) = [SUC t; q; e; nf - 1 + pi; s] /\
+   XCOUNTS_AFTER_ADD 4 pi (t, q, e, nf, s) = [t; SUC q; e; nf - 1 + pi; s + 2058] /\
+   XCOUNTS_AFTER_ADD 5 pi (t, q, e, nf, s) = [t; q; SUC e; nf - 1 + pi; s + 4819] /\
+   XCOUNTS_AFTER_ADD 6 pi (t, q, e, nf, s) = [t; q; SUC e; nf - 1 + pi; s + 7120] /\
+   XCOUNTS_AFTER_ADD i pi (t, q, e, nf, s) =
+     [t + (if i = 3 then 1 else 0);
+      q + (if i = 4 then 1 else 0);
+      e + (if 5 <= i then 1 else 0);
+      nf - 1 + pi;
+      s + SQUANDER_FACE i]`,
+  REWRITE_TAC[XCOUNTS_AFTER_ADD; SQUANDER_FACE; SQUANDER_TARGET;
+              ADD_CLAUSES; ARITH; ADD1]);;
+
+let TUPLE5_TO_LIST = define
+ `TUPLE5_TO_LIST (t:num, q:num, e:num, nf:num, s:num) = [t; q; e; nf; s]`;;
+
+let XCOUNTS_AFTER_A_EXEC = prove
+ (`XCOUNTS_AFTER_A (GRAPH fs m fl h) vl i n arcs u =
+     if n <= u then XCOUNTS_NEW_V i
+     else if MEM u (SOMES vl) then
+       XCOUNTS_AFTER_ADD i (PIECES_AT_A arcs u) (XSTATS5_ACC (EL u fl) 0 0 0 0 0)
+     else TUPLE5_TO_LIST (XSTATS5_ACC (EL u fl) 0 0 0 0 0)`,
+  REWRITE_TAC[XCOUNTS_AFTER_A; XCOUNTS_NEW_V; XCOUNTS_AFTER_ADD;
+              TUPLE5_TO_LIST; XSTATS5_ACC_SPEC; ADD_CLAUSES;
+              TRI; QUAD; EXCEPT; NF_AT; SF_SUM; FACES_AT_EXEC]);;
+
+let XCOUNTS_AFTER_I_EXEC = prove
+ (`XCOUNTS_AFTER_I (GRAPH fs m fl h) f vl i n u =
+     XCOUNTS_AFTER_A (GRAPH fs m fl h) vl i n (PIECE_ARCS f n vl) u`,
+  REWRITE_TAC[XCOUNTS_AFTER_I; XCOUNTS_AFTER_A; PIECES_AT; PIECES_AT_A]);;
+
+let LEAF_SEP_OLD_LIST = new_recursive_definition list_RECURSION
+ `LEAF_SEP_OLD_LIST f u [] = T /\
+  LEAF_SEP_OLD_LIST f u (CONS h hs) =
+    ((h = f \/ 4 < LENGTH (VERTICES h) /\ FINAL_FACE h \/ ~MEM u (VERTICES h)) /\
+     LEAF_SEP_OLD_LIST f u hs)`;;
+
+let LEAF_SEP_OLD_LIST_EXEC = prove
+ (`(!f u. LEAF_SEP_OLD_LIST f u [] = T) /\
+   (!vs0 u vs hs.
+      LEAF_SEP_OLD_LIST (FACE vs0 Nonfinal) u (CONS (FACE vs Final) hs) =
+        ((IS_LEN_GE5 vs \/ ~MEM u vs) /\
+         LEAF_SEP_OLD_LIST (FACE vs0 Nonfinal) u hs)) /\
+   (!vs0 u vs hs.
+      LEAF_SEP_OLD_LIST (FACE vs0 Nonfinal) u (CONS (FACE vs Nonfinal) hs) =
+        ((~MEM u vs \/ vs = vs0) /\
+         LEAF_SEP_OLD_LIST (FACE vs0 Nonfinal) u hs)) /\
+   (!f u vs hs.
+      LEAF_SEP_OLD_LIST f u (CONS (FACE vs Final) hs) =
+        ((IS_LEN_GE5 vs \/ ~MEM u vs \/ FACE vs Final = f) /\
+         LEAF_SEP_OLD_LIST f u hs)) /\
+   (!f u vs hs.
+      LEAF_SEP_OLD_LIST f u (CONS (FACE vs Nonfinal) hs) =
+        ((~MEM u vs \/ FACE vs Nonfinal = f) /\
+         LEAF_SEP_OLD_LIST f u hs))`,
+  REWRITE_TAC[LEAF_SEP_OLD_LIST; FINAL_FACE; VERTICES; IS_LEN_GE5_LENGTH;
+              FACE_INJ; FACETYPE_DISTINCT; ARITH_RULE `4 < n <=> 5 <= n`] THEN
+  REPEAT CONJ_TAC THEN REPEAT GEN_TAC THEN CONV_TAC TAUT);;
+
+let LEAF_SEP_OLD_EXEC2 = prove
+ (`LEAF_SEP_OLD (GRAPH fs n fl h) f u w <=>
+     if w < n then LEAF_SEP_OLD_LIST f u (EL w fl) else T`,
+  REWRITE_TAC[LEAF_SEP_OLD_EXEC; COUNT_VERTICES; FACES_AT_EXEC] THEN
+  COND_CASES_TAC THEN REWRITE_TAC[] THEN
+  SPEC_TAC(`EL w (fl:(face list)list)`,`l:face list`) THEN
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[ALL; LEAF_SEP_OLD_LIST]);;
+
+let LEAF_SEP_PIECES_FAST = new_recursive_definition list_RECURSION
+ `LEAF_SEP_PIECES_FAST vs u w [] = T /\
+  LEAF_SEP_PIECES_FAST vs u w (CONS ac acs) =
+    (~(MEM_ARC_VERTS2 vs u ac /\ MEM_ARC_VERTS2 vs w ac) /\
+     LEAF_SEP_PIECES_FAST vs u w acs)`;;
+
+let LEAF_SEP_PIECES_FAST_EQ = prove
+ (`!arcs f u w.
+     LEAF_SEP_PIECES_FAST (VERTICES f) u w arcs <=>
+     LEAF_SEP_PIECES_A f arcs u w`,
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[LEAF_SEP_PIECES_FAST; LEAF_SEP_PIECES_A; ALL;
+                  MEM_ARC_VERTS2_EQ]);;
+
+let LEAF_SEP_PIECES_A_EXEC = prove
+ (`LEAF_SEP_PIECES_A (FACE vs t) arcs u w <=> LEAF_SEP_PIECES_FAST vs u w arcs`,
+  REWRITE_TAC[GSYM LEAF_SEP_PIECES_FAST_EQ; VERTICES]);;
+
+let LEAF_SEP_PIECES_EXEC = prove
+ (`LEAF_SEP_PIECES (FACE vs t) n vl u w <=>
+     LEAF_SEP_PIECES_FAST vs u w (PIECE_ARCS (FACE vs t) n vl)`,
+  REWRITE_TAC[LEAF_SEP_PIECES; LEAF_SEP_PIECES_A;
+              GSYM LEAF_SEP_PIECES_A_EXEC]);;
+
+let LEAF_SEP_POLY_EXEC = prove
+ (`LEAF_SEP_POLY n vl u w <=>
+     4 < LENGTH vl \/
+     ~((MEM u (SOMES vl) \/ (n <= u /\ u < n + NEW_COUNT vl)) /\
+       (MEM w (SOMES vl) \/ (n <= w /\ w < n + NEW_COUNT vl)))`,
+  REWRITE_TAC[LEAF_SEP_POLY; POLY_VERTS; MEM_APPEND; MEM_UPT]);;
+
+let LEAF_SEP_PAIR_EXEC = prove
+ (`LEAF_SEP_PAIR (GRAPH fs n fl h) (FACE vs t) vl u w <=>
+     (if w < n then LEAF_SEP_OLD_LIST (FACE vs t) u (EL w fl) else T) /\
+     (if u < n then LEAF_SEP_OLD_LIST (FACE vs t) w (EL u fl) else T) /\
+     LEAF_SEP_PIECES_FAST vs u w (PIECE_ARCS (FACE vs t) n vl) /\
+     LEAF_SEP_POLY n vl u w`,
+  REWRITE_TAC[LEAF_SEP_PAIR; LEAF_SEP_OLD_EXEC2; LEAF_SEP_PIECES_EXEC;
+              COUNT_VERTICES]);;
+
+let LEAF_SEP_PAIR_A_EXEC = prove
+ (`LEAF_SEP_PAIR_A (GRAPH fs n fl h) (FACE vs t) vl arcs u w <=>
+     (if w < n then LEAF_SEP_OLD_LIST (FACE vs t) u (EL w fl) else T) /\
+     (if u < n then LEAF_SEP_OLD_LIST (FACE vs t) w (EL u fl) else T) /\
+     LEAF_SEP_PIECES_FAST vs u w arcs /\
+     LEAF_SEP_POLY n vl u w`,
+  REWRITE_TAC[LEAF_SEP_PAIR_A; LEAF_SEP_OLD_EXEC2; LEAF_SEP_PIECES_A_EXEC;
+              COUNT_VERTICES]);;
+
+let LEAF_SEP_PAIRS = new_recursive_definition list_RECURSION
+ `LEAF_SEP_PAIRS fl n f vs0 somes poly_hi arcs u_old fl_u u_in_poly u [] = T /\
+  LEAF_SEP_PAIRS fl n f vs0 somes poly_hi arcs u_old fl_u u_in_poly u (CONS w ws) =
+    ((if w < n then LEAF_SEP_OLD_LIST f u (EL w fl) else T) /\
+     (if u_old then LEAF_SEP_OLD_LIST f w fl_u else T) /\
+     LEAF_SEP_PIECES_FAST vs0 u w arcs /\
+     (if u_in_poly then ~(MEM w somes \/ (n <= w /\ w < poly_hi)) else T) /\
+     LEAF_SEP_PAIRS fl n f vs0 somes poly_hi arcs u_old fl_u u_in_poly u ws)`;;
+
+let LEAF_SEP_FAST = define
+ `LEAF_SEP_FAST fl n f vs0 somes poly_small poly_hi arcs [] = T /\
+  LEAF_SEP_FAST fl n f vs0 somes poly_small poly_hi arcs [u] = T /\
+  LEAF_SEP_FAST fl n f vs0 somes poly_small poly_hi arcs (CONS u (CONS w ws)) =
+    (LEAF_SEP_PAIRS fl n f vs0 somes poly_hi arcs
+       (u < n) (if u < n then EL u fl else [])
+       (poly_small /\ (MEM u somes \/ (n <= u /\ u < poly_hi)))
+       u (CONS w ws) /\
+     LEAF_SEP_FAST fl n f vs0 somes poly_small poly_hi arcs (CONS w ws))`;;
+
+let LEAF_SEP_PAIRS_EQ = prove
+ (`!cs fl n f vs0 somes poly_small poly_hi arcs u.
+     LEAF_SEP_PAIRS fl n f vs0 somes poly_hi arcs
+       (u < n) (if u < n then EL u fl else [])
+       (poly_small /\ (MEM u somes \/ (n <= u /\ u < poly_hi))) u cs <=>
+     ALL (\w. (if w < n then LEAF_SEP_OLD_LIST f u (EL w fl) else T) /\
+              (if u < n then LEAF_SEP_OLD_LIST f w (EL u fl) else T) /\
+              LEAF_SEP_PIECES_FAST vs0 u w arcs /\
+              (if poly_small then
+                 ~((MEM u somes \/ (n <= u /\ u < poly_hi)) /\
+                   (MEM w somes \/ (n <= w /\ w < poly_hi)))
+               else T)) cs`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[LEAF_SEP_PAIRS; ALL] THEN
+  REPEAT GEN_TAC THEN ASM_REWRITE_TAC[] THEN
+  ASM_CASES_TAC `u < n` THEN ASM_CASES_TAC `poly_small:bool` THEN
+  ASM_REWRITE_TAC[] THEN CONV_TAC TAUT);;
+
+let LEAF_SEP_FAST_EQ = prove
+ (`!cs g f vl arcs.
+     LEAF_SEP_FAST (FACE_LIST_AT g) (COUNT_VERTICES g) f (VERTICES f)
+       (SOMES vl) (LENGTH vl <= 4) (COUNT_VERTICES g + NEW_COUNT vl) arcs cs <=>
+     LEAF_SEP_A g f vl arcs cs`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[LEAF_SEP_FAST; LEAF_SEP_A] THEN
+  POP_ASSUM MP_TAC THEN
+  STRUCT_CASES_TAC(ISPEC `t:num list` list_CASES) THENL
+   [REWRITE_TAC[LEAF_SEP_FAST; LEAF_SEP_A; ALL];
+    DISCH_THEN(fun th ->
+      REWRITE_TAC[LEAF_SEP_FAST; LEAF_SEP_A; LEAF_SEP_PAIRS_EQ; th]) THEN
+    REPEAT GEN_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+    AP_THM_TAC THEN AP_TERM_TAC THEN MATCH_MP_TAC EQ_EXT THEN GEN_TAC THEN
+    STRUCT_CASES_TAC(SPEC `g:graph` (cases "graph")) THEN
+    STRUCT_CASES_TAC(SPEC `f:face` (cases "face")) THEN
+    REWRITE_TAC[LEAF_SEP_PAIR_A_EXEC; LEAF_SEP_POLY_EXEC;
+                FACE_LIST_AT; COUNT_VERTICES; VERTICES;
+                ARITH_RULE `LENGTH (vl:(num option)list) <= 4 <=> ~(4 < LENGTH vl)`] THEN
+    ASM_CASES_TAC `4 < LENGTH (vl:(num option)list)` THEN
+    ASM_REWRITE_TAC[]]);;
+
+let LEAF_XEXCESS_U = new_definition
+ `LEAF_XEXCESS_U fl n somes i arcs u =
+    XEXCESS_OF
+      (if n <= u then XCOUNTS_NEW_V i
+       else if MEM u somes then
+         XCOUNTS_AFTER_ADD i (PIECES_AT_A arcs u) (XSTATS5_ACC (EL u fl) 0 0 0 0 0)
+       else TUPLE5_TO_LIST (XSTATS5_ACC (EL u fl) 0 0 0 0 0))`;;
+
+let LEAF_XEXCESS_SUM = new_recursive_definition list_RECURSION
+ `LEAF_XEXCESS_SUM fl n somes i arcs [] = 0 /\
+  LEAF_XEXCESS_SUM fl n somes i arcs (CONS u cs) =
+    LEAF_XEXCESS_U fl n somes i arcs u +
+    LEAF_XEXCESS_SUM fl n somes i arcs cs`;;
+
+let LEAF_XEXCESS_SUM_EXEC = prove
+ (`LEAF_XEXCESS_SUM fl n somes i arcs [] = 0 /\
+   LEAF_XEXCESS_SUM fl n somes i arcs [u] =
+     LEAF_XEXCESS_U fl n somes i arcs u /\
+   LEAF_XEXCESS_SUM fl n somes i arcs (CONS u (CONS u' cs)) =
+     LEAF_XEXCESS_U fl n somes i arcs u +
+     LEAF_XEXCESS_SUM fl n somes i arcs (CONS u' cs)`,
+  REWRITE_TAC[LEAF_XEXCESS_SUM; ADD_CLAUSES]);;
+
+let LEAF_XEXCESS_SUM_EQ = prove
+ (`!cs g vl i arcs.
+     LEAF_XEXCESS_SUM (FACE_LIST_AT g) (COUNT_VERTICES g) (SOMES vl) i arcs cs =
+     LIST_SUM (\u. XEXCESS_OF
+                 (XCOUNTS_AFTER_A g vl i (COUNT_VERTICES g) arcs u)) cs`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[LEAF_XEXCESS_SUM; LIST_SUM] THEN
+  REPEAT GEN_TAC THEN ASM_REWRITE_TAC[] THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+  STRUCT_CASES_TAC(SPEC `g:graph` (cases "graph")) THEN
+  REWRITE_TAC[LEAF_XEXCESS_U; XCOUNTS_AFTER_A_EXEC; FACE_LIST_AT;
+              COUNT_VERTICES]);;
+
+let VL_INFO_NONE = define
+ `VL_INFO_NONE (len, nc, (xs:num list)) = (SUC len, SUC nc, xs)`;;
+
+let VL_INFO_SOME = define
+ `VL_INFO_SOME (x:num) (len, (nc:num), xs) = (SUC len, nc, CONS x xs)`;;
+
+let VL_INFO = define
+ `VL_INFO ([]:(num option)list) = (0, 0, []) /\
+  VL_INFO (CONS NONE vos) = VL_INFO_NONE (VL_INFO vos) /\
+  VL_INFO (CONS (SOME x) vos) = VL_INFO_SOME x (VL_INFO vos)`;;
+
+let VL_INFO_SPEC = prove
+ (`!vl. VL_INFO vl = (LENGTH vl, NEW_COUNT vl, SOMES vl)`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[VL_INFO; NEW_COUNT_EXEC; SOMES; LENGTH] THEN
+  STRUCT_CASES_TAC(ISPEC `h:num option` (cases "option")) THEN
+  ASM_REWRITE_TAC[VL_INFO; VL_INFO_NONE; VL_INFO_SOME;
+                  NEW_COUNT_EXEC; SOMES; LENGTH]);;
+
+let XLB_LEAF_CORE = define
+ `XLB_LEAF_CORE fl n f vs0 vl cs s (len, nc, somes) <=>
+    DISTINCT cs /\
+    ALL_LT (n + nc) cs /\
+    LEAF_SEP_FAST fl n f vs0 somes (len <= 4) (n + nc)
+      (PIECE_ARCS f n vl) cs /\
+    15410 <= s + SQUANDER_FACE len +
+             LEAF_XEXCESS_SUM fl n somes len (PIECE_ARCS f n vl) cs`;;
+
+let XLB_LEAF_A_CORE = define
+ `XLB_LEAF_A_CORE fl n f vs0 cs s arcs (len, nc, somes) <=>
+    DISTINCT cs /\
+    ALL_LT (n + nc) cs /\
+    LEAF_SEP_FAST fl n f vs0 somes (len <= 4) (n + nc) arcs cs /\
+    15410 <= s + SQUANDER_FACE len +
+             LEAF_XEXCESS_SUM fl n somes len arcs cs`;;
+
+let XLB_LEAF_A_EXEC2 = prove
+ (`XLB_LEAF_A (GRAPH fs n fl h) (FACE vs0 t0) vl cs s arcs <=>
+     XLB_LEAF_A_CORE fl n (FACE vs0 t0) vs0 cs s arcs (VL_INFO vl)`,
+  REWRITE_TAC[XLB_LEAF_A; SQUANDER_TARGET; ALL_LT_EQ; COUNT_VERTICES;
+              VL_INFO_SPEC; XLB_LEAF_A_CORE;
+              GSYM LEAF_SEP_FAST_EQ; GSYM LEAF_XEXCESS_SUM_EQ;
+              FACE_LIST_AT; VERTICES]);;
+
+let XLB_LEAF_S_EXEC = prove
+ (`XLB_LEAF_S (GRAPH fs n fl h) (FACE vs0 t0) vl cs s <=>
+     XLB_LEAF_CORE fl n (FACE vs0 t0) vs0 vl cs s (VL_INFO vl)`,
+  REWRITE_TAC[XLB_LEAF_S; XLB_LEAF_A_EXEC2; VL_INFO_SPEC;
+              XLB_LEAF_A_CORE; XLB_LEAF_CORE; COUNT_VERTICES]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* Convenience list of all c2 rewrite rules (for tame_rules).                *)
+(* ------------------------------------------------------------------------- *)
+
+let c2_rules = [
+  "FST", FST, [];
+  "SND", SND, [];
+  "APPEND_UNROLL8", APPEND_UNROLL8, [];
+  "MAP_UNROLL11", MAP_UNROLL11, [];
+  "FILTER_UNROLL2", FILTER_UNROLL2, [];
+  "ALL", ALL, [];
+  "MEM_UNROLL8", MEM_UNROLL8, [];
+  "LENGTH_UNROLL15", LENGTH_UNROLL15, [];
+  "REVERSE", REVERSE, [];
+  "HD", HD, [];
+  "TL", TL, [];
+  "NULL_EXEC", NULL_EXEC, [];
+  "LAST_EXEC", LAST_EXEC, [];
+  "EL_UNROLL15", EL_UNROLL15, [];
+  "REPLICATE_UNROLL5", REPLICATE_UNROLL5, [];
+  "ITER_EXEC", ITER_EXEC, [];
+  "UPT_REC_EXEC", UPT_REC_EXEC, [];
+  "UPT", UPT, [];
+  "FLAT_EXEC", FLAT_EXEC, [];
+  "LIST_SUM_UNROLL6", LIST_SUM_UNROLL6, [];
+  "ROTATE1", ROTATE1, [];
+  "ROTATE_EXEC_2", ROTATE_EXEC_2, [];
+  "REPLACE_EXEC", REPLACE_EXEC, [];
+  "LIST_UPDATE", LIST_UPDATE, [];
+  "UPDATE_AT_EXEC", UPDATE_AT_EXEC, [];
+  "MAP_AT_EXEC_2", MAP_AT_EXEC_2, [];
+  "PAIR_CONS_FST", PAIR_CONS_FST, [];
+  "SPLIT_AT_LIN_EXEC_2", SPLIT_AT_LIN_EXEC_2, [];
+  "SPLIT_AT_EXEC", SPLIT_AT_EXEC, [];
+  "FST_SPLIT_AT", FST_SPLIT_AT, [];
+  "BETWEEN_AUX", BETWEEN_AUX, [];
+  "BETWEEN_EXEC_2", BETWEEN_EXEC_2, [];
+  "MINIMAL_EL_REC", MINIMAL_EL_REC, [];
+  "MINIMAL_EL_EXEC2", MINIMAL_EL_EXEC2, [];
+  "MINIMAL_FACE_REC_EXEC", MINIMAL_FACE_REC_EXEC, [];
+  "MINIMAL_FACE_EXEC", MINIMAL_FACE_EXEC, [];
+  "MINIMAL_VERTEX_REC", MINIMAL_VERTEX_REC, [];
+  "MINIMAL_VERTEX_EXEC", MINIMAL_VERTEX_EXEC, [];
+  "NEXT_ELEM", NEXT_ELEM, [];
+  "HIDE_DUPS_REC", HIDE_DUPS_REC, [];
+  "HIDE_DUPS", HIDE_DUPS, [];
+  "THE", THE, [];
+  "DISTINCT", DISTINCT, [];
+  "VERTICES", VERTICES, [];
+  "FACE_TYPE", FACE_TYPE, [];
+  "FINAL_FACE", FINAL_FACE, [];
+  "SET_FINAL_EXEC", SET_FINAL_EXEC, [];
+  "NEXT_VERTEX_EXEC2", NEXT_VERTEX_EXEC2, [];
+  "NEXT_VERTICES_EXEC", NEXT_VERTICES_EXEC, [];
+  "IS_LEN3", IS_LEN3, [];
+  "IS_LEN4", IS_LEN4, [];
+  "IS_LEN_GE5", IS_LEN_GE5, [];
+  "IS_LEN3TO6", IS_LEN3TO6, [];
+  "SQF", SQF, [];
+  "TRIANGLE_EXEC2", TRIANGLE_EXEC2, [];
+  "FACES", FACES, [];
+  "COUNT_VERTICES", COUNT_VERTICES, [];
+  "FACE_LIST_AT", FACE_LIST_AT, [];
+  "HEIGHTS", HEIGHTS, [];
+  "VERTICES_GRAPH_EXEC", VERTICES_GRAPH_EXEC, [];
+  "FACES_AT_EXEC", FACES_AT_EXEC, [];
+  "HEIGHT_EXEC", HEIGHT_EXEC, [];
+  "SEED_GRAPH_EXEC", SEED_GRAPH_EXEC, [];
+  "FINALS_EXEC", FINALS_EXEC, [];
+  "FILTER_NON_FINALS_EXEC", FILTER_NON_FINALS_EXEC, [];
+  "NON_FINALS_EXEC", NON_FINALS_EXEC, [];
+  "ALL_FINAL_FACE_EXEC", ALL_FINAL_FACE_EXEC, [];
+  "FINAL_GRAPH_EXEC2", FINAL_GRAPH_EXEC2, [];
+  "FINAL_VERTEX_EXEC", FINAL_VERTEX_EXEC, [];
+  "DEGREE_EXEC", DEGREE_EXEC, [];
+  "COUNT_TRI_EXEC", COUNT_TRI_EXEC, [];
+  "COUNT_QUAD_EXEC", COUNT_QUAD_EXEC, [];
+  "COUNT_EXCEPT_EXEC", COUNT_EXCEPT_EXEC, [];
+  "COUNT_NF_EXEC", COUNT_NF_EXEC, [];
+  "SF_SUM_LIST_EXEC", SF_SUM_LIST_EXEC, [];
+  "XSTATS5_ACC_EXEC", XSTATS5_ACC_EXEC, [];
+  "TRI_EXEC2", TRI_EXEC2, [];
+  "QUAD_EXEC2", QUAD_EXEC2, [];
+  "EXCEPT_EXEC2", EXCEPT_EXEC2, [];
+  "NEIGHBORS_LIST_EXEC", NEIGHBORS_LIST_EXEC, [];
+  "NEIGHBORS_EXEC", NEIGHBORS_EXEC, [];
+  "NEIGHBORS_MAP_EXEC", NEIGHBORS_MAP_EXEC, [];
+  "DIRECTED_LENGTH_EXEC", DIRECTED_LENGTH_EXEC, [];
+  "ENUM_BASE", ENUM_BASE, [];
+  "ENUM_APPEND", ENUM_APPEND, [];
+  "ENUMERATOR_EXEC2", ENUMERATOR_EXEC2, [];
+  "IVL_REC", IVL_REC, [];
+  "INDEX_TO_VERTEX_LIST_EXEC", INDEX_TO_VERTEX_LIST_EXEC, [];
+  "SPLIT_FACE_PAIR_EXEC2", SPLIT_FACE_PAIR_EXEC2, [];
+  "REPLACE_FACES_AT", REPLACE_FACES_AT, [];
+  "MAKE_FACE_FINAL_LIST", MAKE_FACE_FINAL_LIST, [];
+  "MAP_REPLACE1", MAP_REPLACE1, [];
+  "MAKE_FACE_FINAL_EXEC", MAKE_FACE_FINAL_EXEC, [];
+  "HEIGHTS_NEW_VERTICES", HEIGHTS_NEW_VERTICES, [];
+  "SPLIT_FACE_EXEC2", SPLIT_FACE_EXEC2, [];
+  "SUBDIV_AFTER_SPLIT", SUBDIV_AFTER_SPLIT, [];
+  "SUBDIV_FACE_REC_EXEC2", SUBDIV_FACE_REC_EXEC2, [];
+  "SUBDIV_FACE_EXEC", SUBDIV_FACE_EXEC, [];
+  "MAX_GON", MAX_GON, [];
+  "DUPLICATE_EDGE", DUPLICATE_EDGE, [];
+  "CONTAINS_UNACCEPTABLE_EDGE_SND", CONTAINS_UNACCEPTABLE_EDGE_SND, [];
+  "CONTAINS_UNACCEPTABLE_EDGE", CONTAINS_UNACCEPTABLE_EDGE, [];
+  "CONTAINS_DUPLICATE_EDGE", CONTAINS_DUPLICATE_EDGE, [];
+  "GENERATE_POLYGON_EXEC2", GENERATE_POLYGON_EXEC2, [];
+  "SEED", SEED, [];
+  "NEXT_PLANE_LOOP_EXEC", NEXT_PLANE_LOOP_EXEC, [];
+  "NEXT_PLANE_AUX", NEXT_PLANE_AUX, [];
+  "NEXT_PLANE_EXEC2", NEXT_PLANE_EXEC2, [];
+  "SQUANDER_VERTEX_EXEC2", SQUANDER_VERTEX_EXEC2, [];
+  "SQUANDER_FACE_EXEC2", SQUANDER_FACE_EXEC2, [];
+  "EXCESS_AT_TYPE_EXEC", EXCESS_AT_TYPE_EXEC, [];
+  "EXCESS_AT", EXCESS_AT, [];
+  "FACE_SQUANDER_LOWER_BOUND_EXEC2", FACE_SQUANDER_LOWER_BOUND_EXEC2, [];
+  "TAME10_EXEC2", TAME10_EXEC2, [];
+  "TAME11A_UPT", TAME11A_UPT, [];
+  "TAME11A_ALL2", TAME11A_ALL2, [];
+  "TAME11B_UPT", TAME11B_UPT, [];
+  "TAME11B_ALL2", TAME11B_ALL2, [];
+  "TAME12O_CHECK", TAME12O_CHECK, [];
+  "TAME12O_UPT", TAME12O_UPT, [];
+  "TAME12O_ALL2", TAME12O_ALL2, [];
+  "ALL_TAME9A_EXEC", ALL_TAME9A_EXEC, [];
+  "TAME9A_ALL2", TAME9A_ALL2, [];
+  "DEGREE_PRUNED_EXEC", DEGREE_PRUNED_EXEC, [];
+  "LB_CERT_VERTEX_OK", LB_CERT_VERTEX_OK, [];
+  "SEPARATED_PAIR_EXEC", SEPARATED_PAIR_EXEC, [];
+  "SEPARATED_LIST", SEPARATED_LIST, [];
+  "LB_CERT_OK", LB_CERT_OK, [];
+  "LB_S", LB_S, [];
+  "SIZE_PRUNED_EXEC", SIZE_PRUNED_EXEC, [];
+  "LB_PRUNED_EXEC", LB_PRUNED_EXEC, [];
+  "FACE_LIST_LEN_EXEC", FACE_LIST_LEN_EXEC, [];
+  "NEW_VERTS", NEW_VERTS, [];
+  "POLY_VLISTS", POLY_VLISTS, [];
+  "ROTATE_TO_AUX", ROTATE_TO_AUX, [];
+  "ROTATE_TO_EXEC", ROTATE_TO_EXEC, [];
+  "IVL_FAST_REC", IVL_FAST_REC, [];
+  "IVL_FAST_EXEC", IVL_FAST_EXEC, [];
+  "POLY_VLISTS_FAST", POLY_VLISTS_FAST, [];
+  "DUP_EDGE_IDX", DUP_EDGE_IDX, [];
+  "CONTAINS_DUPLICATE_EDGE_IDX", CONTAINS_DUPLICATE_EDGE_IDX, [];
+  "CUE_SND_IDX", CUE_SND_IDX, [];
+  "CUE_IDX", CUE_IDX, [];
+  "PV_FAST2_LOOP", PV_FAST2_LOOP, [];
+  "PV_FAST2_EXEC", PV_FAST2_EXEC, [];
+  "POLY_VLISTS_FAST2_EXEC", POLY_VLISTS_FAST2_EXEC, [];
+  "VCOUNT_PRUNED_VL_EXEC2", VCOUNT_PRUNED_VL_EXEC2, [];
+  "ALL_LT", ALL_LT, [];
+  "MINFACE_WF_EXEC", MINFACE_WF_EXEC, [];
+  "FGRAPH_LIST_EXEC", FGRAPH_LIST_EXEC, [];
+  "FGRAPH_EXEC", FGRAPH_EXEC, [];
+  "POLY_SIZES_EXEC2", POLY_SIZES_EXEC2, [];
+  "APPLY_MAP", APPLY_MAP, [];
+  "FACE_MATCH_EXEC", FACE_MATCH_EXEC, [];
+  "FACE_MATCH_BACK_EXEC", FACE_MATCH_BACK_EXEC, [];
+  "ALL_ALL_LT", ALL_ALL_LT, [];
+  "ISO_CERT_OK_AUX", ISO_CERT_OK_AUX, [];
+  "ISO_CERT_OK_EXEC2", ISO_CERT_OK_EXEC2, [];
+  "ALL2", ALL2, [];
+  "NF_AT_EXEC", NF_AT_EXEC, [];
+  "SF_SUM_EXEC", SF_SUM_EXEC, [];
+  "CV0_EXEC2", CV0_EXEC2, [];
+  "MIN_LIST_UNROLL3", MIN_LIST_UNROLL3, [];
+  "COMPLETION_VALUE_EXEC2", COMPLETION_VALUE_EXEC2, [];
+  "XEXCESS_OF_EXEC2", XEXCESS_OF_EXEC2, [];
+  "XEXCESS_TUPLE", XEXCESS_TUPLE, [];
+  "XEXCESS_EXEC2", XEXCESS_EXEC2, [];
+  "XSEP_LIST_EXEC", XSEP_LIST_EXEC, [];
+  "XSEPARATED_PAIR_EXEC", XSEPARATED_PAIR_EXEC, [];
+  "XSEP_ALL", XSEP_ALL, [];
+  "XSEPARATED_LIST_EXEC", XSEPARATED_LIST_EXEC, [];
+  "XLB_CERT_OK_EXEC", XLB_CERT_OK_EXEC, [];
+  "LIST_SUM_XEXCESS_EXEC", LIST_SUM_XEXCESS_EXEC, [];
+  "XLB_S_EXEC", XLB_S_EXEC, [];
+  "XLB_PRUNED_EXEC2", XLB_PRUNED_EXEC2, [];
+  "ALL_NOT_MEM", ALL_NOT_MEM, [];
+  "XSIZE_PRUNED_EXEC2", XSIZE_PRUNED_EXEC2, [];
+  "XSIZE_PRUNED_S_EXEC2", XSIZE_PRUNED_S_EXEC2, [];
+  "SOMES_UNROLL1", SOMES_UNROLL1, [];
+  "ARCS_REC_EXEC", ARCS_REC_EXEC, [];
+  "ARCS_EXEC", ARCS_EXEC, [];
+  "ARC_A", ARC_A, [];
+  "ARC_K", ARC_K, [];
+  "ARC_B", ARC_B, [];
+  "ARC_BASE", ARC_BASE, [];
+  "TRIVIAL_ARC_EXEC", TRIVIAL_ARC_EXEC, [];
+  "PIECE_ARCS_REC_EXEC", PIECE_ARCS_REC_EXEC, [];
+  "PIECE_ARCS_EXEC", PIECE_ARCS_EXEC, [];
+  "ARC_VERTS_EXEC", ARC_VERTS_EXEC, [];
+  "MEM_ARC_VERTS2_EXEC", MEM_ARC_VERTS2_EXEC, [];
+  "PIECES_AT_A_EXEC", PIECES_AT_A_EXEC, [];
+  "PIECES_AT_EXEC", PIECES_AT_EXEC, [];
+  "NEW_COUNT_EXEC", NEW_COUNT_EXEC, [];
+  "POLY_VERTS", POLY_VERTS, [];
+  "XCOUNTS_NEW_V_EXEC", XCOUNTS_NEW_V_EXEC, [];
+  "XCOUNTS_AFTER_ADD_EXEC", XCOUNTS_AFTER_ADD_EXEC, [];
+  "TUPLE5_TO_LIST", TUPLE5_TO_LIST, [];
+  "XCOUNTS_AFTER_A_EXEC", XCOUNTS_AFTER_A_EXEC, [];
+  "XCOUNTS_AFTER_I_EXEC", XCOUNTS_AFTER_I_EXEC, [];
+  "XCOUNTS_AFTER", XCOUNTS_AFTER, [];
+  "LEAF_SEP_OLD_LIST_EXEC", LEAF_SEP_OLD_LIST_EXEC, [];
+  "LEAF_SEP_OLD_EXEC2", LEAF_SEP_OLD_EXEC2, [];
+  "LEAF_SEP_PIECES_FAST", LEAF_SEP_PIECES_FAST, [];
+  "LEAF_SEP_PIECES_A_EXEC", LEAF_SEP_PIECES_A_EXEC, [];
+  "LEAF_SEP_PIECES_EXEC", LEAF_SEP_PIECES_EXEC, [];
+  "LEAF_SEP_POLY_EXEC", LEAF_SEP_POLY_EXEC, [];
+  "LEAF_SEP_PAIR_EXEC", LEAF_SEP_PAIR_EXEC, [];
+  "LEAF_SEP_PAIR_A_EXEC", LEAF_SEP_PAIR_A_EXEC, [];
+  "LEAF_SEP_PAIRS", LEAF_SEP_PAIRS, [];
+  "LEAF_SEP_FAST", LEAF_SEP_FAST, [];
+  "LEAF_SEP", LEAF_SEP, [];
+  "XLB_LEAF_EXEC", XLB_LEAF_EXEC, [];
+  "LEAF_XEXCESS_U", LEAF_XEXCESS_U, [];
+  "LEAF_XEXCESS_SUM_EXEC", LEAF_XEXCESS_SUM_EXEC, [];
+  "VL_INFO_NONE", VL_INFO_NONE, [];
+  "VL_INFO_SOME", VL_INFO_SOME, [];
+  "VL_INFO", VL_INFO, [];
+  "XLB_LEAF_CORE", XLB_LEAF_CORE, [];
+  "XLB_LEAF_A_CORE", XLB_LEAF_A_CORE, [];
+  "XLB_LEAF_A_EXEC2", XLB_LEAF_A_EXEC2, [];
+  "XLB_LEAF_S_EXEC", XLB_LEAF_S_EXEC, [];
+];;

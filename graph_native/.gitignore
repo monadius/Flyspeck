@@ -7,3 +7,4 @@ build/
 graph_runner
 graph_runner_domains
 certsplit
+*.txt
