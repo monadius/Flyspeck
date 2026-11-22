@@ -27,7 +27,7 @@ let tg_serial argv =
 Tg_driver.xlb_mode := true;;
 Tg_driver.progress_every := 100;;
 Tg_driver.prof_on := true;;
-Tg_driver.max_nodes := 1000;;
+Tg_driver.max_nodes := 2000;;
 Tg_driver.max_nodes := 0;;
 
 let out_counters = true;;
@@ -38,10 +38,17 @@ let out_time = false;;
 let out_counters = false;;
 let out_args = false;;
 
+let rules_file = "../../dev/c.hl";;
+let out_file = "out.hl";;
+
+let rules_file = "../../dev/c2.hl";;
+let out_file = "out2.hl";;
+
 loadt "../../dev/b.hl";;
 
 (* 356.1 (no counters) *)
 (* 329.6 *)
+(* 213.4 with c2 definitions *)
 serial [|""; ""; "0"; "graph_native/cert0.txt"|];;
 (* tg_serial [|""; ""; "0"; "graph_native/cert0.txt"|];; *)
 

@@ -13,6 +13,8 @@
 (*     COMPLETION_VALUE, XEXCESS_OF, HEIGHTS_NEW_VERTICES, CV0) intact       *)
 (* ========================================================================= *)
 
+needs "graph/tg_eval_db.hl";;
+
 open Tg_list;;
 open Tg_graph;;
 open Tg_enum;;
@@ -2073,7 +2075,7 @@ let XLB_LEAF_S_EXEC = prove
 (* Convenience list of all c2 rewrite rules (for tame_rules).                *)
 (* ------------------------------------------------------------------------- *)
 
-let c2_rules = [
+let tame_rules = [
   "FST", FST, [];
   "SND", SND, [];
   "APPEND_UNROLL8", APPEND_UNROLL8, [];
