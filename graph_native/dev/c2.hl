@@ -162,6 +162,26 @@ let SOMES_UNROLL1 = prove
    /\ SOMES (CONS (SOME x) xs) = CONS x (SOMES xs)`,
   REWRITE_TAC[SOMES]);;
 
+let REVERSE_UNROLL6 = prove
+ (`REVERSE ([]:(A)list) = []
+   /\ REVERSE [a:A] = [a]
+   /\ REVERSE [a; b] = [b; a]
+   /\ REVERSE [a; b; c] = [c; b; a]
+   /\ REVERSE [a; b; c; d] = [d; c; b; a]
+   /\ REVERSE [a; b; c; d; e] = [e; d; c; b; a]
+   /\ REVERSE [a; b; c; d; e; f] = [f; e; d; c; b; a]
+   /\ REVERSE (CONS a (CONS b (CONS c (CONS d (CONS e (CONS f (CONS g xs))))))) =
+       APPEND (REVERSE xs) [g; f; e; d; c; b; a]`,
+  REWRITE_TAC[REVERSE; APPEND; GSYM APPEND_ASSOC]);;
+
+let DISTINCT_UNROLL2 = prove
+ (`(DISTINCT ([]:(A)list) <=> T)
+   /\ (DISTINCT [a:A] <=> T)
+   /\ (DISTINCT [a; b] <=> ~(a = b))
+   /\ (DISTINCT (CONS a (CONS b xs)) <=>
+       ~(a = b \/ MEM a xs \/ MEM b xs) /\ DISTINCT xs)`,
+  REWRITE_TAC[DISTINCT; MEM] THEN CONV_TAC TAUT);;
+
 let LAST_EXEC = prove
  (`LAST [h:A] = h /\
    LAST (CONS h (CONS h' t)) = LAST (CONS h' t)`,
@@ -2084,7 +2104,7 @@ let tame_rules = [
   "ALL", ALL, [];
   "MEM_UNROLL8", MEM_UNROLL8, [];
   "LENGTH_UNROLL15", LENGTH_UNROLL15, [];
-  "REVERSE", REVERSE, [];
+  "REVERSE_UNROLL6", REVERSE_UNROLL6, [];
   "HD", HD, [];
   "TL", TL, [];
   "NULL_EXEC", NULL_EXEC, [];
@@ -2118,7 +2138,7 @@ let tame_rules = [
   "HIDE_DUPS_REC", HIDE_DUPS_REC, [];
   "HIDE_DUPS", HIDE_DUPS, [];
   "THE", THE, [];
-  "DISTINCT", DISTINCT, [];
+  "DISTINCT_UNROLL2", DISTINCT_UNROLL2, [];
   "VERTICES", VERTICES, [];
   "FACE_TYPE", FACE_TYPE, [];
   "FINAL_FACE", FINAL_FACE, [];
