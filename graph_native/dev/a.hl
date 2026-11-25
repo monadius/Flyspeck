@@ -25,7 +25,7 @@ let tg_serial argv =
   Tg_driver.run_class p cert;;
 
 Tg_driver.xlb_mode := true;;
-Tg_driver.progress_every := 1000;;
+Tg_driver.progress_every := 100;;
 Tg_driver.prof_on := true;;
 Tg_driver.max_nodes := 2000;;
 Tg_driver.max_nodes := 0;;
@@ -49,6 +49,7 @@ loadt "../../dev/b.hl";;
 (* 356.1 (no counters) *)
 (* 329.6 *)
 (* 213.4 with c2 definitions *)
+(* 193.3 with c2 definitions and fast arith *)
 serial [|""; ""; "0"; "graph_native/cert0.txt"|];;
 (* tg_serial [|""; ""; "0"; "graph_native/cert0.txt"|];; *)
 serial [|""; ""; "1"; "graph_native/cert1.txt"|];;
@@ -284,7 +285,7 @@ val it : (string * (float * int)) list =
    ("f_CONTAINS_DUPLICATE_EDGE_IDX_abs1", (0.296479433138521209, 143386));
    ("f_DUP_EDGE_IDX", (0.296479433138521209, 143386))]
 
-  [("f_LEAF_SEP_OLD", (0.25508914438568292, 162994));
+   [("f_LEAF_SEP_OLD", (0.25508914438568292, 162994));
    ("f_APPEND_face_list", (0.230606724204560104, 77630));
    ("f_UPDATE_AT_face_list", (0.132592263100773267, 2095258));
    ("f_MAP_num_num_num", (0.0588235294117647051, 17));
